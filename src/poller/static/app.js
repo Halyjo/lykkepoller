@@ -1,45 +1,229 @@
 // app.js -- tiny vanilla JS. No framework.
 //
-// Two roles, dispatched from the body class set by the template:
+// What this file does, by page:
 //
-//   1. body.participant -- participant page polls /api/participant/state
-//      every ~1.5s. The poll doubles as a heartbeat (the server updates
-//      last_seen_at). When the active question changes, or the session
-//      ends, we replace the page body so the participant doesn't need to
-//      hit refresh. (Implemented in M5.)
+//   body.participant
+//     Polls /api/participant/state every ~1.5s. The poll doubles as a
+//     heartbeat: the server updates participants.last_seen_at so it can
+//     tell the presenter how many phones are currently connected.
+//     If the active-question id changes, or the session ends, we reload
+//     the page so the server template renders the new state. Reloading
+//     keeps client-side templating out of the picture.
 //
-//   2. body.admin -- admin page polls /api/admin/state every ~1.5s for
-//      response/participant counts and free-text moderation list.
-//      Keyboard shortcuts (handled here) drive the state machine without
-//      mouse clicks. (Polling implemented in M5; shortcuts are M3.)
+//   body.admin
+//     Polls /api/admin/state every ~1.5s. Updates the connected/answered
+//     counts and re-renders each question's result block in place
+//     (MC bars or free-text moderation list). Also wires keyboard
+//     shortcuts that submit the matching <form>, so server-side handlers
+//     stay the single source of truth.
 //
-//   3. body.present -- /present polls /api/present/state every ~1.5s
-//      for the same counts and (when the reveal toggle is on) the
-//      list of approved free-text answers. (Implemented in M5.)
+//       ->/Space  next question (or end session if on the last)
+//       <-        previous question
+//       Esc       clear active question (back to IDLE)
+//       R         toggle "reveal free-text answers on /present"
+//       E         end session (with confirm)
+//
+//     Shortcuts are skipped when focus is in an input/textarea so typing
+//     in the override URL field does not trigger them.
+//
+//   body.present
+//     Polls /api/present/state every ~1.5s. Updates connected/answered
+//     and the result block; on phase or active-question changes, reloads.
 
 const POLL_MS = 1500;
 
 document.addEventListener("DOMContentLoaded", () => {
-  if (document.body.classList.contains("admin")) {
+  if (document.body.classList.contains("participant")) {
+    pollParticipant();
+    setInterval(pollParticipant, POLL_MS);
+  } else if (document.body.classList.contains("admin")) {
     bindAdminShortcuts();
+    pollAdmin();
+    setInterval(pollAdmin, POLL_MS);
+  } else if (document.body.classList.contains("present")) {
+    pollPresent();
+    setInterval(pollPresent, POLL_MS);
   }
 });
 
-// -- admin keyboard shortcuts -------------------------------------------------
-//
-// →/Space  next question (or end session if on the last)
-// ←        previous question
-// Esc      clear active question (back to IDLE)
-// R        toggle "reveal free-text answers on /present"
-// E        end session (with confirm)
-//
-// We submit the corresponding HTML form so the server-side handler is the
-// single source of truth -- no parallel JS state. We also skip the shortcut
-// when focus is in an input/textarea so typing in the override URL field
-// doesn't trigger anything.
+// --- helpers ----------------------------------------------------------------
+
+function setText(id, value) {
+  const el = document.getElementById(id);
+  if (el != null) el.textContent = String(value);
+}
+
+function escapeHtml(s) {
+  return String(s)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+async function fetchJson(url) {
+  try {
+    const res = await fetch(url, {credentials: "same-origin"});
+    if (!res.ok) return null;
+    return await res.json();
+  } catch (_e) {
+    return null;
+  }
+}
+
+// --- participant ------------------------------------------------------------
+
+async function pollParticipant() {
+  const data = await fetchJson("/api/participant/state");
+  if (!data) return;
+  const root = document.getElementById("participant-app");
+  if (!root) return;
+
+  const currentPhase = root.dataset.phase || "";
+  const currentQid = root.dataset.qid || "";
+  const nextPhase = data.phase;
+  const nextQid =
+    data.phase === "active" && data.active_question ? data.active_question.id : "";
+
+  // Only reload on transitions that change the rendered structure. Staying on
+  // the same active question (counts ticking up server-side) does not affect
+  // what the participant sees, so we leave their form alone -- in particular,
+  // we do not clobber half-typed text in a free-text answer.
+  if (currentPhase !== nextPhase || currentQid !== nextQid) {
+    window.location.reload();
+  }
+}
+
+// --- admin ------------------------------------------------------------------
+
+async function pollAdmin() {
+  const data = await fetchJson("/api/admin/state");
+  if (!data) return;
+
+  setText("connected-count", data.connected_count);
+  setText("answered-count", data.answered_count);
+
+  for (const [qid, r] of Object.entries(data.results)) {
+    const c = document.querySelector(`.q-results[data-qid="${cssEscape(qid)}"]`);
+    if (!c) continue;
+    if (r.type === "multiple_choice") {
+      c.innerHTML = renderMCBars(r);
+    } else {
+      c.innerHTML = renderFreeTextList(r, qid);
+    }
+  }
+}
+
+function renderMCBars(r) {
+  let html = "";
+  if (r.total) {
+    for (const opt of r.options) {
+      html +=
+        `<div class="bar">` +
+        `<div class="bar-label">${escapeHtml(opt.label)}</div>` +
+        `<div class="bar-fill" style="width: ${opt.pct}%"></div>` +
+        `<div class="bar-count">${opt.count} · ${opt.pct}%</div>` +
+        `</div>`;
+    }
+  }
+  html += `<p class="muted">${r.total} response${r.total === 1 ? "" : "s"}</p>`;
+  return html;
+}
+
+function renderFreeTextList(r, qid) {
+  let html = `<p class="muted">${r.total} response${r.total === 1 ? "" : "s"}</p>`;
+  if (r.answers.length) {
+    html += '<ul class="free-text-list">';
+    for (const a of r.answers) {
+      const newApproved = a.approved ? "0" : "1";
+      const action = a.approved ? "Unapprove" : "Approve";
+      const cls = a.approved ? "approved" : "";
+      html +=
+        `<li class="${cls}">` +
+        `<span class="answer-text">${escapeHtml(a.answer)}</span>` +
+        `<form method="post" action="/admin/approve" class="inline">` +
+        `<input type="hidden" name="qid" value="${escapeHtml(qid)}">` +
+        `<input type="hidden" name="rid" value="${a.id}">` +
+        `<input type="hidden" name="approved" value="${newApproved}">` +
+        `<button type="submit">${action}</button>` +
+        `</form>` +
+        `</li>`;
+    }
+    html += "</ul>";
+  }
+  return html;
+}
+
+// CSS.escape isn't available everywhere; quick fallback for our use (ids are
+// well-behaved YAML keys, but be defensive).
+function cssEscape(s) {
+  if (window.CSS && CSS.escape) return CSS.escape(s);
+  return String(s).replace(/(["\\])/g, "\\$1");
+}
+
+// --- present ----------------------------------------------------------------
+
+async function pollPresent() {
+  const data = await fetchJson("/api/present/state");
+  if (!data) return;
+
+  setText("connected-count", data.connected_count);
+  setText("answered-count", data.answered_count);
+
+  const root = document.getElementById("present-app");
+  if (!root) return;
+
+  const currentPhase = root.dataset.phase || "";
+  const currentQid = root.dataset.qid || "";
+  const nextQid =
+    data.phase === "active" && data.active_question ? data.active_question.id : "";
+  if (currentPhase !== data.phase || currentQid !== nextQid) {
+    window.location.reload();
+    return;
+  }
+
+  if (data.phase === "active" && data.active_results) {
+    const results = document.getElementById("present-results");
+    if (!results) return;
+    if (data.active_results.type === "multiple_choice") {
+      results.innerHTML = renderMCPresent(data.active_results);
+    } else {
+      results.innerHTML = renderFreeTextPresent(data.active_results, data.reveal_free_text);
+    }
+  }
+}
+
+function renderMCPresent(r) {
+  let html = "";
+  for (const opt of r.options) {
+    html +=
+      `<div class="bar">` +
+      `<div class="bar-label">${escapeHtml(opt.label)}</div>` +
+      `<div class="bar-fill" style="width: ${opt.pct}%"></div>` +
+      `<div class="bar-count">${opt.count} (${opt.pct}%)</div>` +
+      `</div>`;
+  }
+  return html;
+}
+
+function renderFreeTextPresent(r, reveal) {
+  let html = `<p class="big">${r.total} response${r.total === 1 ? "" : "s"} received</p>`;
+  if (reveal && r.approved_answers && r.approved_answers.length) {
+    html += '<ul class="present-free-text">';
+    for (const a of r.approved_answers) {
+      html += `<li>${escapeHtml(a.answer)}</li>`;
+    }
+    html += "</ul>";
+  }
+  return html;
+}
+
+// --- admin keyboard shortcuts ----------------------------------------------
+
 function bindAdminShortcuts() {
   document.addEventListener("keydown", (e) => {
-    const tag = (document.activeElement && document.activeElement.tagName || "").toLowerCase();
+    const tag = ((document.activeElement && document.activeElement.tagName) || "").toLowerCase();
     if (tag === "input" || tag === "textarea") return;
     if (e.metaKey || e.ctrlKey || e.altKey) return;
 

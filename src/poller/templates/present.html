@@ -1,7 +1,9 @@
 {% extends "base.html" %}
 {% block body_class %}present{% endblock %}
 {% block content %}
-<div id="present-app" data-phase="{{ phase }}">
+<div id="present-app"
+     data-phase="{{ phase }}"
+     data-qid="{{ active_question.id if active_question else '' }}">
   {% if phase == "ended" %}
     <h1 class="huge">Thanks!</h1>
     <p class="big">{{ title }}</p>

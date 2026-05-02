@@ -4,12 +4,13 @@ import secrets
 from pathlib import Path
 
 from fastapi import FastAPI, Form, HTTPException, Request, Response
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from . import db as db_module
 from . import exports as exports_mod
+from . import qr as qr_mod
 from . import questions as questions_mod
 
 PACKAGE_DIR = Path(__file__).parent
@@ -105,6 +106,32 @@ def create_app(*, db_path: Path) -> FastAPI:
             return ids[0]
         i = ids.index(current)
         return ids[i + 1] if i + 1 < len(ids) else None
+
+    def compute_base_url(request: Request) -> tuple[str, str]:
+        """Return (base_url, source) for the public-facing URL.
+
+        Priority:
+          1. manual override stored on the session row
+          2. X-Forwarded-Host / X-Forwarded-Proto (set by cloudflared)
+          3. request.base_url (Uvicorn already honors X-Forwarded-Proto when
+             started with proxy_headers=True; the host comes from the Host header)
+
+        `source` is one of "override" / "headers" / "request" / "localhost".
+        It is shown on /admin so the presenter can see where the join URL came
+        from without guessing.
+        """
+        sess = db_module.get_session(conn)
+        override = (sess or {}).get("public_url_override")
+        if override:
+            return override.rstrip("/"), "override"
+        fwd_host = request.headers.get("x-forwarded-host")
+        if fwd_host:
+            proto = request.headers.get("x-forwarded-proto") or request.url.scheme
+            return f"{proto}://{fwd_host}".rstrip("/"), "headers"
+        base = str(request.base_url).rstrip("/")
+        if "127.0.0.1" in base or "localhost" in base:
+            return base, "localhost"
+        return base, "request"
 
     def compute_results(question: dict) -> dict:
         """Build the result summary dict used by both /admin and /present."""
@@ -211,8 +238,9 @@ def create_app(*, db_path: Path) -> FastAPI:
             else None
         )
         active_results = compute_results(active_q) if active_q else None
-        join_url = str(request.base_url).rstrip("/") + "/join"
-        qr_url = str(request.base_url).rstrip("/") + "/qr.png"
+        base, _ = compute_base_url(request)
+        join_url = base + "/join"
+        qr_url = base + "/qr.png"
         return TEMPLATES.TemplateResponse(
             request,
             "present.html",
@@ -250,7 +278,8 @@ def create_app(*, db_path: Path) -> FastAPI:
 
         sess = current_session()
         state = current_state()
-        join_url = str(request.base_url).rstrip("/") + "/join"
+        base, base_src = compute_base_url(request)
+        join_url = base + "/join"
         results = {q["id"]: compute_results(q) for q in sess["questions"]}
         active_id = state["active_question_id"]
         return TEMPLATES.TemplateResponse(
@@ -262,7 +291,7 @@ def create_app(*, db_path: Path) -> FastAPI:
                 "session_id": sess["id"],
                 "state": state,
                 "join_url": join_url,
-                "join_url_source": "request",
+                "join_url_source": base_src,
                 "public_url_override": sess.get("public_url_override") or "",
                 "connected_count": db_module.count_connected(conn, sess["id"]),
                 "results": results,
@@ -349,5 +378,88 @@ def create_app(*, db_path: Path) -> FastAPI:
                 "Content-Disposition": f'attachment; filename="{sess["id"]}.csv"',
             },
         )
+
+    @app.post("/admin/override")
+    async def admin_override(request: Request, url: str = Form("")):
+        require_admin(request)
+        db_module.set_public_url_override(conn, app.state.session_id, url.strip())
+        return RedirectResponse("/admin", status_code=303)
+
+    # --- QR --------------------------------------------------------------------
+
+    @app.get("/qr.png")
+    async def qr_image(request: Request):
+        # The QR encodes the inferred public join URL. With cloudflared, this
+        # picks up the tunnel URL automatically (via X-Forwarded-Host); in pure
+        # local dev it falls back to http://127.0.0.1:port/join.
+        base, _ = compute_base_url(request)
+        png = qr_mod.png_bytes(base + "/join")
+        return Response(content=png, media_type="image/png")
+
+    # --- live polling JSON -----------------------------------------------------
+
+    @app.get("/api/participant/state")
+    async def api_participant_state(request: Request):
+        # The participant page polls this endpoint every ~1.5s. It doubles as
+        # the heartbeat -- every poll updates participants.last_seen_at, which
+        # drives the "connected" count on /admin and /present.
+        pid, is_new = ensure_participant_id(request)
+        sess = current_session()
+        state = current_state()
+        db_module.heartbeat(conn, sess["id"], pid)
+        active_q = (
+            questions_mod.find_question(sess["questions"], state["active_question_id"])
+            if state["active_question_id"]
+            else None
+        )
+        prior = (
+            db_module.get_response(conn, sess["id"], state["active_question_id"], pid)
+            if state["active_question_id"]
+            else None
+        )
+        payload = {
+            "phase": phase_of(state),
+            "active_question": active_q,
+            "prior_answer": prior,
+        }
+        resp = JSONResponse(payload)
+        if is_new:
+            set_participant_cookie(resp, pid)
+        return resp
+
+    @app.get("/api/admin/state")
+    async def api_admin_state(request: Request):
+        require_admin(request)
+        sess = current_session()
+        state = current_state()
+        active_id = state["active_question_id"]
+        return {
+            "phase": phase_of(state),
+            "active_question_id": active_id,
+            "ended": state["ended"],
+            "reveal_free_text": state["reveal_free_text"],
+            "connected_count": db_module.count_connected(conn, sess["id"]),
+            "answered_count": (
+                db_module.count_answered(conn, sess["id"], active_id) if active_id else 0
+            ),
+            "results": {q["id"]: compute_results(q) for q in sess["questions"]},
+        }
+
+    @app.get("/api/present/state")
+    async def api_present_state(request: Request):
+        sess = current_session()
+        state = current_state()
+        active_id = state["active_question_id"]
+        active_q = questions_mod.find_question(sess["questions"], active_id) if active_id else None
+        return {
+            "phase": phase_of(state),
+            "active_question": active_q,
+            "active_results": compute_results(active_q) if active_q else None,
+            "reveal_free_text": state["reveal_free_text"],
+            "connected_count": db_module.count_connected(conn, sess["id"]),
+            "answered_count": (
+                db_module.count_answered(conn, sess["id"], active_id) if active_id else 0
+            ),
+        }
 
     return app

@@ -298,3 +298,87 @@ def test_export_csv_endpoint(app_client):
 def test_export_csv_requires_admin(app_client):
     r = app_client.get("/admin/export.csv")
     assert r.status_code == 401
+
+
+# --- live polling, QR, public URL inference (M5) -----------------------------
+
+
+def test_qr_png_is_an_image(app_client):
+    r = app_client.get("/qr.png")
+    assert r.status_code == 200
+    assert r.headers["content-type"] == "image/png"
+    # PNG magic header
+    assert r.content[:8] == b"\x89PNG\r\n\x1a\n"
+
+
+def test_api_participant_state_returns_phase_and_heartbeats(app_client):
+    admin(app_client)
+    app_client.post("/admin/activate", data={"qid": "q1"})
+    # Ensure no participant cookie carried over from admin actions.
+    app_client.cookies.delete("participant_id")
+    r = app_client.get("/api/participant/state")
+    assert r.status_code == 200
+    payload = r.json()
+    assert payload["phase"] == "active"
+    assert payload["active_question"]["id"] == "q1"
+    # The poll set a participant cookie; subsequent polls should reuse it.
+    assert "participant_id" in app_client.cookies
+    # The poll should have heartbeated -> connected_count >= 1 on /admin.
+    r = app_client.get("/api/admin/state")
+    assert r.json()["connected_count"] >= 1
+
+
+def test_api_admin_state_returns_results(app_client):
+    admin(app_client)
+    app_client.post("/admin/activate", data={"qid": "q1"})
+    submit_answer(app_client, "q1", "A", "p-alice")
+    submit_answer(app_client, "q1", "B", "p-bob")
+    r = app_client.get("/api/admin/state")
+    assert r.status_code == 200
+    p = r.json()
+    assert p["phase"] == "active"
+    assert p["active_question_id"] == "q1"
+    assert p["results"]["q1"]["type"] == "multiple_choice"
+    assert p["results"]["q1"]["total"] == 2
+
+
+def test_api_present_state_includes_active_results(app_client):
+    admin(app_client)
+    app_client.post("/admin/activate", data={"qid": "q2"})
+    submit_answer(app_client, "q2", "first", "p-alice")
+    r = app_client.get("/api/present/state")
+    p = r.json()
+    assert p["phase"] == "active"
+    assert p["active_question"]["id"] == "q2"
+    assert p["active_results"]["total"] == 1
+    assert p["reveal_free_text"] is False
+
+
+def test_admin_override_sets_public_url(app_client):
+    admin(app_client)
+    r = app_client.post("/admin/override", data={"url": "https://abc.example"})
+    assert r.status_code == 303
+    r = app_client.get("/admin")
+    assert "https://abc.example" in r.text
+    assert "source: override" in r.text
+
+
+def test_admin_override_clear(app_client):
+    admin(app_client)
+    app_client.post("/admin/override", data={"url": "https://abc.example"})
+    app_client.post("/admin/override", data={"url": ""})
+    r = app_client.get("/admin")
+    assert "source: override" not in r.text
+
+
+def test_join_url_uses_forwarded_host(app_client):
+    admin(app_client)
+    r = app_client.get(
+        "/admin",
+        headers={
+            "x-forwarded-host": "tunnel.cfargotunnel.com",
+            "x-forwarded-proto": "https",
+        },
+    )
+    assert "https://tunnel.cfargotunnel.com/join" in r.text
+    assert "source: headers" in r.text

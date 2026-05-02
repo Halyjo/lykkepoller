@@ -2,7 +2,9 @@
 {% block body_class %}participant{% endblock %}
 {% block content %}
 <h1>{{ title }}</h1>
-<div id="participant-app">
+<div id="participant-app"
+     data-phase="{{ phase }}"
+     data-qid="{{ active_question.id if active_question else '' }}">
   {% if phase == "ended" %}
     <p class="big">Thanks, that's the last one.</p>
   {% elif phase == "active" and active_question %}
