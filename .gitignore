@@ -1,0 +1,17 @@
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+.uv/
+*.egg-info/
+dist/
+build/
+
+.pytest_cache/
+.ruff_cache/
+
+data/*.sqlite
+data/*.sqlite-wal
+data/*.sqlite-shm
+
+.DS_Store

@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block body_class %}present{% endblock %}
+{% block content %}
+<div id="present-app" data-phase="{{ phase }}">
+  {% if phase == "ended" %}
+    <h1 class="huge">Thanks!</h1>
+    <p class="big">{{ title }}</p>
+  {% elif phase == "active" and active_question %}
+    <h1 class="prompt">{{ active_question.prompt }}</h1>
+    <div class="present-meta">
+      <span><span id="connected-count">{{ connected_count }}</span> connected</span>
+      <span>·</span>
+      <span><span id="answered-count">{{ answered_count }}</span> answered</span>
+    </div>
+    <div id="present-results"></div>
+  {% else %}
+    <h1 class="title">{{ title }}</h1>
+    <div class="qr-block">
+      <img src="{{ qr_url }}" alt="QR code to join" class="qr">
+      <p class="big join-url">{{ join_url }}</p>
+      <p class="muted"><span id="connected-count">{{ connected_count }}</span> connected</p>
+    </div>
+  {% endif %}
+</div>
+{% endblock %}
+{% block scripts %}<script src="/static/app.js" defer></script>{% endblock %}

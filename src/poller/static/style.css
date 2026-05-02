@@ -1,0 +1,124 @@
+/* Tiny stylesheet. Plain CSS, no preprocessor, no framework. */
+
+:root {
+  --fg: #1a1a1a;
+  --bg: #fafafa;
+  --muted: #6b6b6b;
+  --accent: #2a59c9;
+  --active: #fff7c2;
+  --danger: #c92a2a;
+  --border: #d8d8d8;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  color: var(--fg);
+  background: var(--bg);
+  line-height: 1.5;
+}
+
+main { max-width: 900px; margin: 0 auto; padding: 1.5rem; }
+
+h1 { margin-top: 0; }
+.muted { color: var(--muted); font-size: 0.9rem; }
+.big { font-size: 1.4rem; }
+.huge { font-size: 4rem; margin: 0; }
+
+button { font-size: 1rem; padding: 0.5rem 1rem; cursor: pointer; }
+
+/* --- participant ----------------------------------------------------- */
+body.participant main { max-width: 600px; }
+body.participant .prompt { font-size: 1.5rem; }
+body.participant .option {
+  display: block;
+  padding: 1rem;
+  margin: 0.5rem 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: white;
+  cursor: pointer;
+}
+body.participant .option input { margin-right: 0.5rem; }
+body.participant textarea {
+  width: 100%; padding: 0.75rem; font-size: 1rem;
+  border: 1px solid var(--border); border-radius: 8px;
+}
+body.participant button[type="submit"] {
+  width: 100%; padding: 1rem; font-size: 1.1rem;
+  background: var(--accent); color: white; border: none; border-radius: 8px;
+  margin-top: 1rem;
+}
+body.participant .submitted {
+  margin-top: 1rem; padding: 0.5rem 0.75rem;
+  background: #e8f5e9; border-radius: 6px; font-size: 0.95rem;
+}
+
+/* --- admin ----------------------------------------------------------- */
+body.admin main { max-width: 1100px; }
+.admin-header { display: flex; justify-content: space-between; gap: 2rem; flex-wrap: wrap; }
+.admin-header h1 { margin-bottom: 0.25rem; }
+.join-block { font-size: 0.95rem; }
+.override-form input { width: 16rem; padding: 0.4rem; }
+
+.status-row { display: flex; gap: 2rem; align-items: center; margin: 1rem 0; }
+.status { font-size: 1.1rem; }
+.badge {
+  display: inline-block; padding: 0.2rem 0.6rem; border-radius: 999px;
+  font-weight: 600; font-size: 0.85rem; letter-spacing: 0.05em;
+}
+.badge.idle { background: #eef; color: #336; }
+.badge.active { background: #e6f7d8; color: #2a6e0a; }
+.badge.ended { background: #f4d8d8; color: var(--danger); }
+
+.controls { display: flex; gap: 0.5rem; flex-wrap: wrap; margin: 1rem 0 2rem; }
+.controls form { margin: 0; }
+.big-btn {
+  font-size: 1.1rem; padding: 0.9rem 1.4rem;
+  border: 1px solid var(--border); border-radius: 8px;
+  background: white;
+}
+.big-btn.primary { background: var(--accent); color: white; border-color: var(--accent); }
+.big-btn.danger { background: var(--danger); color: white; border-color: var(--danger); }
+
+.question-list { list-style: none; padding: 0; }
+.question-item {
+  padding: 0.75rem 1rem; margin: 0.5rem 0;
+  border: 1px solid var(--border); border-radius: 8px; background: white;
+}
+.question-item.active { background: var(--active); border-color: #d4a800; }
+.q-head { display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap; }
+.q-head .inline { margin-left: auto; }
+.q-results { margin-top: 0.5rem; }
+
+.bar { margin: 0.25rem 0; display: flex; align-items: center; gap: 0.5rem; }
+.bar-fill { background: var(--accent); height: 1rem; border-radius: 4px; min-width: 1px; }
+.bar-label { min-width: 12rem; font-size: 0.95rem; }
+.bar-count { color: var(--muted); font-size: 0.9rem; }
+
+.free-text-list { list-style: none; padding: 0; margin-top: 0.5rem; }
+.free-text-list li {
+  padding: 0.5rem 0.75rem; margin: 0.3rem 0;
+  border: 1px solid var(--border); border-radius: 6px;
+  background: #fff;
+  display: flex; gap: 0.5rem; align-items: center;
+}
+.free-text-list .approved { background: #f1f8e9; }
+.free-text-list .answer-text { flex: 1; }
+
+.export { margin-top: 2rem; }
+
+/* --- present --------------------------------------------------------- */
+body.present { background: #fff; }
+body.present main { max-width: 1400px; padding: 3rem; }
+body.present .prompt { font-size: 3rem; line-height: 1.2; }
+body.present .title { font-size: 3rem; }
+body.present .qr-block { display: flex; flex-direction: column; align-items: center; gap: 1rem; }
+body.present .qr { width: 380px; height: 380px; image-rendering: pixelated; }
+body.present .join-url { font-family: ui-monospace, "SFMono-Regular", Consolas, monospace; }
+body.present .present-meta { font-size: 1.2rem; color: var(--muted); margin: 1rem 0 2rem; display: flex; gap: 0.75rem; }
+body.present .bar-label { min-width: 18rem; font-size: 1.4rem; }
+body.present .bar-fill { height: 1.6rem; }
+body.present .bar-count { font-size: 1.2rem; }

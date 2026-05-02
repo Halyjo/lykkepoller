@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+{% block body_class %}admin{% endblock %}
+{% block content %}
+<header class="admin-header">
+  <div>
+    <h1>{{ title }}</h1>
+    <p class="muted">session <code>{{ session_id }}</code></p>
+  </div>
+  <div class="join-block">
+    <p><strong>Join URL:</strong> <a href="{{ join_url }}">{{ join_url }}</a></p>
+    <p class="muted">source: {{ join_url_source }}</p>
+    <form method="post" action="/admin/override" class="override-form">
+      <label>Public URL override: <input type="url" name="url" value="{{ public_url_override }}" placeholder="https://your-tunnel.example"></label>
+      <button type="submit">Save</button>
+    </form>
+  </div>
+</header>
+
+<section class="status-row">
+  <div class="status">
+    <span id="connected-count">{{ connected_count }}</span> connected
+    {% if state.active_question_id %}· <span id="answered-count">0</span> answered{% endif %}
+  </div>
+  <div class="status">
+    {% if state.ended %}<span class="badge ended">ENDED</span>
+    {% elif state.active_question_id %}<span class="badge active">ACTIVE</span>
+    {% else %}<span class="badge idle">IDLE</span>{% endif %}
+  </div>
+</section>
+
+<section class="controls">
+  <form method="post" action="/admin/prev"><button type="submit" class="big-btn">← Previous</button></form>
+  <form method="post" action="/admin/next"><button type="submit" class="big-btn primary">Next →</button></form>
+  <form method="post" action="/admin/clear"><button type="submit" class="big-btn">Clear</button></form>
+  <form method="post" action="/admin/end" onsubmit="return confirm('End session?');"><button type="submit" class="big-btn danger">End session</button></form>
+  <form method="post" action="/admin/reveal" class="reveal-form">
+    <input type="hidden" name="on" value="{{ '0' if state.reveal_free_text else '1' }}">
+    <button type="submit" class="big-btn">{{ 'Hide' if state.reveal_free_text else 'Reveal' }} free-text on /present</button>
+  </form>
+</section>
+
+<section class="questions">
+  <h2>Questions</h2>
+  <ol class="question-list">
+    {% for q in questions %}
+      <li class="question-item {% if state.active_question_id == q.id %}active{% endif %}" data-qid="{{ q.id }}">
+        <div class="q-head">
+          <strong>{{ loop.index }}. {{ q.prompt }}</strong>
+          <span class="muted">({{ q.type }})</span>
+          <form method="post" action="/admin/activate" class="inline">
+            <input type="hidden" name="qid" value="{{ q.id }}">
+            <button type="submit">{% if state.active_question_id == q.id %}Active{% else %}Activate{% endif %}</button>
+          </form>
+        </div>
+        <div class="q-results" data-qid="{{ q.id }}"></div>
+      </li>
+    {% endfor %}
+  </ol>
+</section>
+
+<section class="export">
+  <a href="/admin/export.csv">Download CSV</a>
+</section>
+{% endblock %}
+{% block scripts %}<script src="/static/app.js" defer></script>{% endblock %}
