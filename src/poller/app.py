@@ -3,12 +3,13 @@
 import secrets
 from pathlib import Path
 
-from fastapi import FastAPI, Form, HTTPException, Request
+from fastapi import FastAPI, Form, HTTPException, Request, Response
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from . import db as db_module
+from . import exports as exports_mod
 from . import questions as questions_mod
 
 PACKAGE_DIR = Path(__file__).parent
@@ -105,6 +106,36 @@ def create_app(*, db_path: Path) -> FastAPI:
         i = ids.index(current)
         return ids[i + 1] if i + 1 < len(ids) else None
 
+    def compute_results(question: dict) -> dict:
+        """Build the result summary dict used by both /admin and /present."""
+        sid = app.state.session_id
+        qid = question["id"]
+        if question["type"] == "multiple_choice":
+            counts = db_module.aggregate_choice_counts(conn, sid, qid)
+            opts = []
+            for o in question.get("options", []):
+                n = counts.get(o["id"], 0)
+                opts.append({"id": o["id"], "label": o["label"], "count": n})
+            total = sum(o["count"] for o in opts)
+            for o in opts:
+                o["pct"] = round(100 * o["count"] / total) if total else 0
+            return {"type": "multiple_choice", "options": opts, "total": total}
+        rows = db_module.list_responses(conn, sid, qid)
+        approved_ids = {a["id"] for a in db_module.list_approved_free_text(conn, sid, qid)}
+        answers = [
+            {"id": r["id"], "answer": r["answer"], "approved": r["id"] in approved_ids}
+            for r in rows
+        ]
+        # Note: keys named "items"/"keys"/"values" collide with dict builtin
+        # methods under Jinja2's attribute access (`res.items`), so we use
+        # "answers" / "approved_answers" instead.
+        return {
+            "type": "free_text",
+            "answers": answers,
+            "approved_answers": [a for a in answers if a["approved"]],
+            "total": len(answers),
+        }
+
     # --- public routes --------------------------------------------------------
 
     @app.get("/", include_in_schema=False)
@@ -179,6 +210,7 @@ def create_app(*, db_path: Path) -> FastAPI:
             if state["active_question_id"]
             else None
         )
+        active_results = compute_results(active_q) if active_q else None
         join_url = str(request.base_url).rstrip("/") + "/join"
         qr_url = str(request.base_url).rstrip("/") + "/qr.png"
         return TEMPLATES.TemplateResponse(
@@ -188,6 +220,8 @@ def create_app(*, db_path: Path) -> FastAPI:
                 "title": sess["title"],
                 "phase": phase_of(state),
                 "active_question": active_q,
+                "active_results": active_results,
+                "reveal_free_text": state["reveal_free_text"],
                 "join_url": join_url,
                 "qr_url": qr_url,
                 "connected_count": db_module.count_connected(conn, sess["id"]),
@@ -217,6 +251,8 @@ def create_app(*, db_path: Path) -> FastAPI:
         sess = current_session()
         state = current_state()
         join_url = str(request.base_url).rstrip("/") + "/join"
+        results = {q["id"]: compute_results(q) for q in sess["questions"]}
+        active_id = state["active_question_id"]
         return TEMPLATES.TemplateResponse(
             request,
             "admin.html",
@@ -229,6 +265,10 @@ def create_app(*, db_path: Path) -> FastAPI:
                 "join_url_source": "request",
                 "public_url_override": sess.get("public_url_override") or "",
                 "connected_count": db_module.count_connected(conn, sess["id"]),
+                "results": results,
+                "answered_count": (
+                    db_module.count_answered(conn, sess["id"], active_id) if active_id else 0
+                ),
             },
         )
 
@@ -282,5 +322,32 @@ def create_app(*, db_path: Path) -> FastAPI:
         require_admin(request)
         db_module.set_reveal_free_text(conn, app.state.session_id, on == "1")
         return RedirectResponse("/admin", status_code=303)
+
+    @app.post("/admin/approve")
+    async def admin_approve(
+        request: Request,
+        qid: str = Form(...),
+        rid: int = Form(...),
+        approved: str = Form(...),
+    ):
+        require_admin(request)
+        if approved == "1":
+            db_module.approve_free_text(conn, app.state.session_id, qid, rid)
+        else:
+            db_module.unapprove_free_text(conn, app.state.session_id, qid, rid)
+        return RedirectResponse("/admin", status_code=303)
+
+    @app.get("/admin/export.csv")
+    async def admin_export(request: Request):
+        require_admin(request)
+        sess = current_session()
+        csv_text = exports_mod.csv_for_session(conn, sess)
+        return Response(
+            content=csv_text,
+            media_type="text/csv",
+            headers={
+                "Content-Disposition": f'attachment; filename="{sess["id"]}.csv"',
+            },
+        )
 
     return app

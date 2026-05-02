@@ -10,7 +10,9 @@
     <p><strong>Join URL:</strong> <a href="{{ join_url }}">{{ join_url }}</a></p>
     <p class="muted">source: {{ join_url_source }}</p>
     <form method="post" action="/admin/override" class="override-form">
-      <label>Public URL override: <input type="url" name="url" value="{{ public_url_override }}" placeholder="https://your-tunnel.example"></label>
+      <label>Public URL override:
+        <input type="url" name="url" value="{{ public_url_override }}" placeholder="https://your-tunnel.example">
+      </label>
       <button type="submit">Save</button>
     </form>
   </div>
@@ -19,7 +21,7 @@
 <section class="status-row">
   <div class="status">
     <span id="connected-count">{{ connected_count }}</span> connected
-    {% if state.active_question_id %}· <span id="answered-count">0</span> answered{% endif %}
+    {% if state.active_question_id %}· <span id="answered-count">{{ answered_count }}</span> answered{% endif %}
   </div>
   <div class="status">
     {% if state.ended %}<span class="badge ended">ENDED</span>
@@ -43,16 +45,48 @@
   <h2>Questions</h2>
   <ol class="question-list">
     {% for q in questions %}
-      <li class="question-item {% if state.active_question_id == q.id %}active{% endif %}" data-qid="{{ q.id }}">
+      {% set is_active = state.active_question_id == q.id %}
+      {% set res = results[q.id] %}
+      <li class="question-item {% if is_active %}active{% endif %}" data-qid="{{ q.id }}">
         <div class="q-head">
           <strong>{{ loop.index }}. {{ q.prompt }}</strong>
           <span class="muted">({{ q.type }})</span>
           <form method="post" action="/admin/activate" class="inline">
             <input type="hidden" name="qid" value="{{ q.id }}">
-            <button type="submit">{% if state.active_question_id == q.id %}Active{% else %}Activate{% endif %}</button>
+            <button type="submit">{% if is_active %}Active{% else %}Activate{% endif %}</button>
           </form>
         </div>
-        <div class="q-results" data-qid="{{ q.id }}"></div>
+        <div class="q-results" data-qid="{{ q.id }}">
+          {% if res.type == "multiple_choice" %}
+            {% if res.total %}
+              {% for opt in res.options %}
+                <div class="bar">
+                  <div class="bar-label">{{ opt.label }}</div>
+                  <div class="bar-fill" style="width: {{ opt.pct }}%"></div>
+                  <div class="bar-count">{{ opt.count }} · {{ opt.pct }}%</div>
+                </div>
+              {% endfor %}
+            {% endif %}
+            <p class="muted">{{ res.total }} response{{ '' if res.total == 1 else 's' }}</p>
+          {% else %}
+            <p class="muted">{{ res.total }} response{{ '' if res.total == 1 else 's' }}</p>
+            {% if res.answers %}
+              <ul class="free-text-list">
+                {% for ans in res.answers %}
+                  <li class="{% if ans.approved %}approved{% endif %}">
+                    <span class="answer-text">{{ ans.answer }}</span>
+                    <form method="post" action="/admin/approve" class="inline">
+                      <input type="hidden" name="qid" value="{{ q.id }}">
+                      <input type="hidden" name="rid" value="{{ ans.id }}">
+                      <input type="hidden" name="approved" value="{{ '0' if ans.approved else '1' }}">
+                      <button type="submit">{% if ans.approved %}Unapprove{% else %}Approve{% endif %}</button>
+                    </form>
+                  </li>
+                {% endfor %}
+              </ul>
+            {% endif %}
+          {% endif %}
+        </div>
       </li>
     {% endfor %}
   </ol>

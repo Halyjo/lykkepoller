@@ -198,3 +198,103 @@ def test_answer_for_inactive_question_ignored(app_client):
     assert r.status_code == 303
     r = app_client.get("/join")
     assert "Waiting for presenter" in r.text
+
+
+# --- results, moderation, CSV (M4) -------------------------------------------
+
+
+def submit_answer(client, qid, answer, participant_cookie=None):
+    """POST /answer with a specific participant_id cookie so we can simulate
+    multiple distinct participants from one TestClient."""
+    if participant_cookie:
+        client.cookies.set("participant_id", participant_cookie)
+    return client.post("/answer", data={"question_id": qid, "answer": answer})
+
+
+def test_admin_renders_mc_bars(app_client):
+    admin(app_client)
+    app_client.post("/admin/activate", data={"qid": "q1"})
+    submit_answer(app_client, "q1", "A", "p-alice")
+    submit_answer(app_client, "q1", "B", "p-bob")
+    submit_answer(app_client, "q1", "A", "p-carol")
+    r = app_client.get("/admin")
+    # Expect counts visible: A=2, B=1
+    assert "Apple" in r.text
+    assert "Banana" in r.text
+    assert "2 · 67%" in r.text or "2 · 66%" in r.text
+    assert "3 responses" in r.text
+
+
+def test_admin_free_text_approve_toggle(app_client):
+    admin(app_client)
+    app_client.post("/admin/activate", data={"qid": "q2"})
+    submit_answer(app_client, "q2", "first answer", "p-alice")
+    submit_answer(app_client, "q2", "second answer", "p-bob")
+    r = app_client.get("/admin")
+    assert "first answer" in r.text
+    assert "second answer" in r.text
+    # Find the response id of the first answer for the approve POST.
+    from poller import db as dbm
+
+    c = dbm.connect(app_client.app.state.db_path)
+    rows = dbm.list_responses(c, "blue-otter-1234", "q2")
+    rid = next(r2["id"] for r2 in rows if r2["answer"] == "first answer")
+    c.close()
+    app_client.post("/admin/approve", data={"qid": "q2", "rid": rid, "approved": "1"})
+    r = app_client.get("/admin")
+    assert "Unapprove" in r.text  # button text flips after approval
+
+
+def test_present_mc_results_visible(app_client):
+    admin(app_client)
+    app_client.post("/admin/activate", data={"qid": "q1"})
+    submit_answer(app_client, "q1", "A", "p-alice")
+    r = app_client.get("/present")
+    assert "Apple" in r.text
+    assert "1 (100%)" in r.text
+
+
+def test_present_free_text_shows_count_only_by_default(app_client):
+    admin(app_client)
+    app_client.post("/admin/activate", data={"qid": "q2"})
+    submit_answer(app_client, "q2", "secret thought", "p-alice")
+    r = app_client.get("/present")
+    assert "1 response" in r.text
+    assert "secret thought" not in r.text
+
+
+def test_present_shows_only_approved_when_revealed(app_client):
+    admin(app_client)
+    app_client.post("/admin/activate", data={"qid": "q2"})
+    submit_answer(app_client, "q2", "ok answer", "p-alice")
+    submit_answer(app_client, "q2", "off-color answer", "p-bob")
+
+    from poller import db as dbm
+
+    c = dbm.connect(app_client.app.state.db_path)
+    rows = dbm.list_responses(c, "blue-otter-1234", "q2")
+    rid_ok = next(r["id"] for r in rows if r["answer"] == "ok answer")
+    c.close()
+    app_client.post("/admin/approve", data={"qid": "q2", "rid": rid_ok, "approved": "1"})
+    # Reveal toggle ON.
+    app_client.post("/admin/reveal", data={"on": "1"})
+    r = app_client.get("/present")
+    assert "ok answer" in r.text
+    assert "off-color answer" not in r.text  # never shown until approved
+
+
+def test_export_csv_endpoint(app_client):
+    admin(app_client)
+    app_client.post("/admin/activate", data={"qid": "q1"})
+    submit_answer(app_client, "q1", "A", "p-alice")
+    r = app_client.get("/admin/export.csv")
+    assert r.status_code == 200
+    assert r.headers["content-type"].startswith("text/csv")
+    assert "session_id,question_id,question_type,prompt" in r.text
+    assert "p-alice" in r.text
+    assert "Apple" in r.text
+
+
+def test_export_csv_requires_admin(app_client):
+    r = app_client.get("/admin/export.csv")
+    assert r.status_code == 401

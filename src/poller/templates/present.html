@@ -12,7 +12,26 @@
       <span>·</span>
       <span><span id="answered-count">{{ answered_count }}</span> answered</span>
     </div>
-    <div id="present-results"></div>
+    <div id="present-results">
+      {% if active_results.type == "multiple_choice" %}
+        {% for opt in active_results.options %}
+          <div class="bar">
+            <div class="bar-label">{{ opt.label }}</div>
+            <div class="bar-fill" style="width: {{ opt.pct }}%"></div>
+            <div class="bar-count">{{ opt.count }} ({{ opt.pct }}%)</div>
+          </div>
+        {% endfor %}
+      {% else %}
+        <p class="big">{{ active_results.total }} response{{ '' if active_results.total == 1 else 's' }} received</p>
+        {% if reveal_free_text and active_results.approved_answers %}
+          <ul class="present-free-text">
+            {% for ans in active_results.approved_answers %}
+              <li>{{ ans.answer }}</li>
+            {% endfor %}
+          </ul>
+        {% endif %}
+      {% endif %}
+    </div>
   {% else %}
     <h1 class="title">{{ title }}</h1>
     <div class="qr-block">
