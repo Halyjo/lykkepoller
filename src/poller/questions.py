@@ -56,6 +56,8 @@ def validate(data) -> None:
                 if oid in seen_oids:
                     raise ValueError(f"duplicate option id {oid!r} in question {qid!r}")
                 seen_oids.add(oid)
+                if "is_correct" in o and not isinstance(o["is_correct"], bool):
+                    raise ValueError(f"option {oid!r} in {qid!r}: is_correct must be a boolean")
 
 
 def find_question(qs: list[dict], qid: str) -> dict | None:

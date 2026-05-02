@@ -21,6 +21,11 @@
 //       <-        previous question
 //       Esc       clear active question (back to IDLE)
 //       R         toggle "reveal free-text answers on /present"
+//       C         toggle "show correct answer" (color the right MC option green,
+//                 dim the others). Resets to off when the next question activates.
+//       A         approve all currently-submitted free-text answers for the
+//                 active question. Idempotent -- press it again as new answers
+//                 come in to bulk-accept the new ones too.
 //       E         end session (with confirm)
 //
 //     Shortcuts are skipped when focus is in an input/textarea so typing
@@ -108,19 +113,24 @@ async function pollAdmin() {
     const c = document.querySelector(`.q-results[data-qid="${cssEscape(qid)}"]`);
     if (!c) continue;
     if (r.type === "multiple_choice") {
-      c.innerHTML = renderMCBars(r);
+      // Correctness colors only apply to the active question -- past
+      // questions are not retroactively repainted.
+      const isActive = qid === data.active_question_id;
+      const showCorrect = data.reveal_correct && isActive && r.any_correct;
+      c.innerHTML = renderMCBars(r, showCorrect);
     } else {
       c.innerHTML = renderFreeTextList(r, qid);
     }
   }
 }
 
-function renderMCBars(r) {
+function renderMCBars(r, showCorrect) {
   let html = "";
   if (r.total) {
     for (const opt of r.options) {
+      const cls = showCorrect ? (opt.is_correct ? "correct" : "dimmed") : "";
       html +=
-        `<div class="bar">` +
+        `<div class="bar ${cls}">` +
         `<div class="bar-label">${escapeHtml(opt.label)}</div>` +
         `<div class="bar-fill" style="width: ${opt.pct}%"></div>` +
         `<div class="bar-count">${opt.count} · ${opt.pct}%</div>` +
@@ -187,18 +197,20 @@ async function pollPresent() {
     const results = document.getElementById("present-results");
     if (!results) return;
     if (data.active_results.type === "multiple_choice") {
-      results.innerHTML = renderMCPresent(data.active_results);
+      const showCorrect = data.reveal_correct && data.active_results.any_correct;
+      results.innerHTML = renderMCPresent(data.active_results, showCorrect);
     } else {
       results.innerHTML = renderFreeTextPresent(data.active_results, data.reveal_free_text);
     }
   }
 }
 
-function renderMCPresent(r) {
+function renderMCPresent(r, showCorrect) {
   let html = "";
   for (const opt of r.options) {
+    const cls = showCorrect ? (opt.is_correct ? "correct" : "dimmed") : "";
     html +=
-      `<div class="bar">` +
+      `<div class="bar ${cls}">` +
       `<div class="bar-label">${escapeHtml(opt.label)}</div>` +
       `<div class="bar-fill" style="width: ${opt.pct}%"></div>` +
       `<div class="bar-count">${opt.count} (${opt.pct}%)</div>` +
@@ -253,6 +265,14 @@ function bindAdminShortcuts() {
       case "e":
       case "E":
         submit('form[action="/admin/end"]');
+        break;
+      case "c":
+      case "C":
+        submit('form[action="/admin/reveal_correct"]');
+        break;
+      case "a":
+      case "A":
+        submit('form[action="/admin/approve_all"]');
         break;
     }
   });

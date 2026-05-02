@@ -140,13 +140,23 @@ def create_app(*, db_path: Path) -> FastAPI:
         if question["type"] == "multiple_choice":
             counts = db_module.aggregate_choice_counts(conn, sid, qid)
             opts = []
+            any_correct = False
             for o in question.get("options", []):
                 n = counts.get(o["id"], 0)
-                opts.append({"id": o["id"], "label": o["label"], "count": n})
+                is_correct = bool(o.get("is_correct", False))
+                any_correct = any_correct or is_correct
+                opts.append(
+                    {"id": o["id"], "label": o["label"], "count": n, "is_correct": is_correct}
+                )
             total = sum(o["count"] for o in opts)
             for o in opts:
                 o["pct"] = round(100 * o["count"] / total) if total else 0
-            return {"type": "multiple_choice", "options": opts, "total": total}
+            return {
+                "type": "multiple_choice",
+                "options": opts,
+                "total": total,
+                "any_correct": any_correct,
+            }
         rows = db_module.list_responses(conn, sid, qid)
         approved_ids = {a["id"] for a in db_module.list_approved_free_text(conn, sid, qid)}
         answers = [
@@ -250,6 +260,7 @@ def create_app(*, db_path: Path) -> FastAPI:
                 "active_question": active_q,
                 "active_results": active_results,
                 "reveal_free_text": state["reveal_free_text"],
+                "reveal_correct": state["reveal_correct"],
                 "join_url": join_url,
                 "qr_url": qr_url,
                 "connected_count": db_module.count_connected(conn, sess["id"]),
@@ -352,6 +363,14 @@ def create_app(*, db_path: Path) -> FastAPI:
         db_module.set_reveal_free_text(conn, app.state.session_id, on == "1")
         return RedirectResponse("/admin", status_code=303)
 
+    @app.post("/admin/reveal_correct")
+    async def admin_reveal_correct(request: Request, on: str = Form(...)):
+        # Toggled per-question via the C shortcut. set_active_question resets
+        # this back to 0, so each new question starts hidden.
+        require_admin(request)
+        db_module.set_reveal_correct(conn, app.state.session_id, on == "1")
+        return RedirectResponse("/admin", status_code=303)
+
     @app.post("/admin/approve")
     async def admin_approve(
         request: Request,
@@ -364,6 +383,22 @@ def create_app(*, db_path: Path) -> FastAPI:
             db_module.approve_free_text(conn, app.state.session_id, qid, rid)
         else:
             db_module.unapprove_free_text(conn, app.state.session_id, qid, rid)
+        return RedirectResponse("/admin", status_code=303)
+
+    @app.post("/admin/approve_all")
+    async def admin_approve_all(request: Request):
+        # Bulk-approve every response for the active free-text question. The
+        # presenter typically uses this to skim new answers, glance for
+        # anything off, and accept the rest in one click. No-op when there is
+        # no active question or the active question is not free-text.
+        require_admin(request)
+        state = current_state()
+        qid = state["active_question_id"]
+        if qid:
+            sess = current_session()
+            q = questions_mod.find_question(sess["questions"], qid)
+            if q is not None and q["type"] == "free_text":
+                db_module.approve_all_existing_free_text(conn, sess["id"], qid)
         return RedirectResponse("/admin", status_code=303)
 
     @app.get("/admin/export.csv")
@@ -438,6 +473,7 @@ def create_app(*, db_path: Path) -> FastAPI:
             "active_question_id": active_id,
             "ended": state["ended"],
             "reveal_free_text": state["reveal_free_text"],
+            "reveal_correct": state["reveal_correct"],
             "connected_count": db_module.count_connected(conn, sess["id"]),
             "answered_count": (
                 db_module.count_answered(conn, sess["id"], active_id) if active_id else 0
@@ -456,6 +492,7 @@ def create_app(*, db_path: Path) -> FastAPI:
             "active_question": active_q,
             "active_results": compute_results(active_q) if active_q else None,
             "reveal_free_text": state["reveal_free_text"],
+            "reveal_correct": state["reveal_correct"],
             "connected_count": db_module.count_connected(conn, sess["id"]),
             "answered_count": (
                 db_module.count_answered(conn, sess["id"], active_id) if active_id else 0

@@ -5,6 +5,7 @@ for session state, and writing this stuff in plain SQL means we want a thick
 test belt around it.
 """
 
+import sqlite3
 import time
 
 import pytest
@@ -68,7 +69,12 @@ def test_get_session_empty_db(conn):
 
 def test_initial_state_is_idle(conn, session):
     st = db.get_state(conn, session)
-    assert st == {"active_question_id": None, "ended": False, "reveal_free_text": False}
+    assert st == {
+        "active_question_id": None,
+        "ended": False,
+        "reveal_free_text": False,
+        "reveal_correct": False,
+    }
 
 
 def test_set_public_url_override(conn, session):
@@ -108,6 +114,75 @@ def test_set_reveal_free_text(conn, session):
     assert db.get_state(conn, session)["reveal_free_text"] is True
     db.set_reveal_free_text(conn, session, False)
     assert db.get_state(conn, session)["reveal_free_text"] is False
+
+
+def test_set_reveal_correct(conn, session):
+    db.set_reveal_correct(conn, session, True)
+    assert db.get_state(conn, session)["reveal_correct"] is True
+    db.set_reveal_correct(conn, session, False)
+    assert db.get_state(conn, session)["reveal_correct"] is False
+
+
+def test_activating_question_resets_reveal_correct(conn, session):
+    # Each new question should start with the correct-answer reveal hidden,
+    # so pressing Next does not leak the next question's answer.
+    db.set_active_question(conn, session, "q1")
+    db.set_reveal_correct(conn, session, True)
+    assert db.get_state(conn, session)["reveal_correct"] is True
+    db.set_active_question(conn, session, "q2")
+    assert db.get_state(conn, session)["reveal_correct"] is False
+
+
+def test_create_session_records_yaml_filename(conn):
+    db.create_session(
+        conn,
+        "wild-fox-9999",
+        "Demo",
+        make_qs(),
+        "tok",
+        source_yaml_filename="SAR-presentation.yaml",
+    )
+    s = db.get_session(conn)
+    assert s["source_yaml_filename"] == "SAR-presentation.yaml"
+
+
+def test_init_schema_migrates_old_db(tmp_path):
+    """Reopening a v0.1.0 DB (no source_yaml_filename, no reveal_correct)
+    should not crash; the columns get added on init_schema."""
+    p = tmp_path / "old.sqlite"
+    c = sqlite3.connect(p)
+    c.executescript(
+        """
+        CREATE TABLE sessions (
+            id TEXT PRIMARY KEY,
+            title TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            questions_json TEXT NOT NULL,
+            public_url_override TEXT,
+            admin_token TEXT NOT NULL
+        );
+        CREATE TABLE state (
+            session_id TEXT PRIMARY KEY,
+            active_question_id TEXT,
+            ended INTEGER NOT NULL DEFAULT 0,
+            reveal_free_text INTEGER NOT NULL DEFAULT 0
+        );
+        INSERT INTO sessions (id, title, created_at, questions_json, admin_token)
+            VALUES ('blue-otter-1234', 'Old', '2026-01-01T00:00:00Z', '[]', 'tok');
+        INSERT INTO state (session_id) VALUES ('blue-otter-1234');
+        """
+    )
+    c.commit()
+    c.close()
+
+    c2 = db.connect(p)
+    db.init_schema(c2)
+    s = db.get_session(c2)
+    assert s["id"] == "blue-otter-1234"
+    assert s["source_yaml_filename"] is None
+    st = db.get_state(c2, "blue-otter-1234")
+    assert st["reveal_correct"] is False
+    c2.close()
 
 
 # --- responses ----------------------------------------------------------------
@@ -196,6 +271,37 @@ def test_count_connected_window(conn, session):
 
 
 # --- free-text moderation -----------------------------------------------------
+
+
+def test_approve_all_existing_free_text(conn, session):
+    db.insert_response(conn, session, "q2", "p-alice", "first")
+    db.insert_response(conn, session, "q2", "p-bob", "second")
+    db.insert_response(conn, session, "q2", "p-carol", "third")
+    n = db.approve_all_existing_free_text(conn, session, "q2")
+    assert n == 3
+    assert {a["answer"] for a in db.list_approved_free_text(conn, session, "q2")} == {
+        "first",
+        "second",
+        "third",
+    }
+
+
+def test_approve_all_is_idempotent_and_picks_up_new(conn, session):
+    db.insert_response(conn, session, "q2", "p-alice", "first")
+    db.approve_all_existing_free_text(conn, session, "q2")
+    # New answer arrives
+    db.insert_response(conn, session, "q2", "p-bob", "second")
+    # Second press picks up the new one without duplicating the first.
+    n = db.approve_all_existing_free_text(conn, session, "q2")
+    assert n == 2
+
+
+def test_approve_all_only_affects_target_question(conn, session):
+    db.insert_response(conn, session, "q1", "p-alice", "A")
+    db.insert_response(conn, session, "q2", "p-alice", "free text")
+    db.approve_all_existing_free_text(conn, session, "q2")
+    # q1 (a multiple-choice question) should have no approval rows.
+    assert db.list_approved_free_text(conn, session, "q1") == []
 
 
 def test_approve_and_unapprove_free_text(conn, session):

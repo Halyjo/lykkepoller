@@ -1,4 +1,6 @@
+import re
 import secrets
+import time
 from pathlib import Path
 
 import typer
@@ -60,12 +62,24 @@ def run(
         session_id = _friendly_id()
         admin_token = _friendly_id()
         DATA_DIR.mkdir(parents=True, exist_ok=True)
-        db_path = DATA_DIR / f"{session_id}.sqlite"
+        # Filename embeds creation date and the YAML basename so `ls data/`
+        # is self-explaining ("oh, that was the SAR-presentation"). The random
+        # session id is still in there to disambiguate re-runs of the same YAML.
+        date = time.strftime("%Y-%m-%d")
+        slug = _yaml_slug(yaml_path)
+        db_path = DATA_DIR / f"{date}-{slug}-{session_id}.sqlite"
         if db_path.exists():
             raise typer.BadParameter(f"{db_path} already exists. Use `--db {db_path}` to reopen.")
         conn = db_module.connect(db_path)
         db_module.init_schema(conn)
-        db_module.create_session(conn, session_id, data["title"], data["questions"], admin_token)
+        db_module.create_session(
+            conn,
+            session_id,
+            data["title"],
+            data["questions"],
+            admin_token,
+            source_yaml_filename=yaml_path.name,
+        )
         conn.close()
 
     fastapi_app = app_module.create_app(db_path=db_path)
@@ -103,6 +117,8 @@ def inspect(
     connected = db_module.count_connected(conn, session["id"])
     typer.echo(f"Session: {session['id']}")
     typer.echo(f"Title: {session['title']}")
+    typer.echo(f"Source: {session.get('source_yaml_filename') or '(unknown)'}")
+    typer.echo(f"Created: {session['created_at']}")
     typer.echo(f"Questions: {n_questions}")
     typer.echo(f"Responses: {n_responses}")
     typer.echo(f"Connected (last 30s): {connected}")
@@ -187,6 +203,17 @@ def _do_migration(db_path: Path, yaml_path: Path, *, assume_yes: bool) -> None:
     db_module.replace_questions(conn, session["id"], diff["merged"])
     typer.echo("Migration applied.")
     conn.close()
+
+
+def _yaml_slug(yaml_path: Path) -> str:
+    """Sanitize a YAML stem for use in a filename.
+
+    Keeps [A-Za-z0-9._-]; collapses other runs to a single dash. Case is
+    preserved so "SAR-presentation.yaml" stays "SAR-presentation".
+    """
+    s = re.sub(r"[^A-Za-z0-9._-]+", "-", yaml_path.stem)
+    s = re.sub(r"-+", "-", s).strip("-_.")
+    return s or "session"
 
 
 def _friendly_id() -> str:

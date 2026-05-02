@@ -156,6 +156,8 @@ When focus is *not* in an input or textarea:
 | `←`            | activate previous question                        |
 | `Esc`          | clear active question (back to IDLE)              |
 | `R`            | toggle "reveal free-text answers on /present"     |
+| `C`            | toggle "show correct answer" for the current MC   |
+| `A`            | approve all free-text answers submitted so far    |
 | `E`            | end session (with confirmation)                   |
 
 The shortcuts simply submit the matching `<form>` so the server-side
@@ -168,6 +170,37 @@ handler is the single source of truth. A quick manual test:
 4. Press `Esc` -- back to IDLE.
 5. Click the override URL field, type a character, press `→` -- nothing
    happens (focus check works).
+
+## Showing the correct answer
+
+Multiple-choice options accept an optional `is_correct: true` flag in the
+YAML:
+
+```yaml
+- id: q1
+  type: multiple_choice
+  prompt: "Which metric best captures missed oil spills?"
+  options:
+    - id: A
+      label: "Pixel accuracy"
+    - id: B
+      label: "Instance-wise recall"
+      is_correct: true
+    - id: C
+      label: "Mean brightness"
+```
+
+By default the correct option is just stored, not shown -- you move on
+with arrow keys without revealing anything. Press `C` (or click "Show
+correct" on `/admin`) to color the correct option(s) green and gently
+dim the others on both `/admin` and `/present`. Multiple options can be
+flagged correct.
+
+The reveal resets to off whenever a new question is activated, so
+pressing `→` does not leak the next question's answer to the audience.
+
+If a question has no `is_correct` on any option, the toggle is a no-op
+for that question.
 
 ## Free-text moderation
 
@@ -183,6 +216,13 @@ cannot accidentally hit the projector.
 By default `/present` shows the response count only ("17 responses
 received"). The presenter reads the answers on `/admin`, approves the
 ones they want to show, then flips the global toggle.
+
+For bulk acceptance, press `A` (or click "Approve all so far") --
+this approves every free-text answer submitted up to that moment for
+the active question. It is idempotent: when more answers come in, you
+can press `A` again to accept the new batch without affecting earlier
+choices. If you want to exclude a specific answer, just unapprove it
+individually after the bulk-approve.
 
 ## Export CSV
 
@@ -216,11 +256,23 @@ when something looks off and you want a quick look without writing SQL.
 ## Reopen an existing session
 
 A presentation tool must survive restart. Each session lives in its own
-SQLite file:
+SQLite file. The filename embeds the creation date and the YAML basename
+so `ls data/` is self-explaining:
+
+```text
+data/2026-05-02-SAR-presentation-blue-otter-4281.sqlite
+data/2026-05-02-questions-amber-owl-7104.sqlite
+data/2026-05-09-week2-quiz-quiet-raven-3320.sqlite
+```
+
+Reopen with:
 
 ```bash
-uv run poller run --db data/blue-otter-4281.sqlite
+uv run poller run --db data/2026-05-02-SAR-presentation-blue-otter-4281.sqlite
 ```
+
+(`poller inspect <db>` also prints the source YAML filename it was
+created from, in case the file was renamed.)
 
 On reopen:
 

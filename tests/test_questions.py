@@ -74,6 +74,20 @@ def test_validate_option_missing_label():
         questions.validate(data)
 
 
+def test_validate_is_correct_optional():
+    data = _ok()
+    data["questions"][0]["options"][0]["is_correct"] = True
+    data["questions"][0]["options"][1]["is_correct"] = False
+    questions.validate(data)  # both bool values, including absence on others, are fine
+
+
+def test_validate_is_correct_must_be_bool():
+    data = _ok()
+    data["questions"][0]["options"][0]["is_correct"] = "yes"
+    with pytest.raises(ValueError, match="is_correct must be a boolean"):
+        questions.validate(data)
+
+
 def test_load_yaml_file(tmp_path):
     f = tmp_path / "q.yaml"
     f.write_text('title: "Hi"\nquestions:\n  - id: q1\n    type: free_text\n    prompt: "Why?"\n')

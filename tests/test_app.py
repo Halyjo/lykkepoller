@@ -15,7 +15,10 @@ def make_qs():
             "id": "q1",
             "type": "multiple_choice",
             "prompt": "Pick a fruit",
-            "options": [{"id": "A", "label": "Apple"}, {"id": "B", "label": "Banana"}],
+            "options": [
+                {"id": "A", "label": "Apple"},
+                {"id": "B", "label": "Banana", "is_correct": True},
+            ],
         },
         {"id": "q2", "type": "free_text", "prompt": "Why?"},
         {
@@ -382,3 +385,123 @@ def test_join_url_uses_forwarded_host(app_client):
     )
     assert "https://tunnel.cfargotunnel.com/join" in r.text
     assert "source: headers" in r.text
+
+
+# --- correct-answer reveal --------------------------------------------------
+
+
+def test_results_include_is_correct(app_client):
+    admin(app_client)
+    app_client.post("/admin/activate", data={"qid": "q1"})
+    r = app_client.get("/api/admin/state").json()
+    opts = r["results"]["q1"]["options"]
+    by_id = {o["id"]: o for o in opts}
+    assert by_id["A"]["is_correct"] is False
+    assert by_id["B"]["is_correct"] is True
+    assert r["results"]["q1"]["any_correct"] is True
+    # q3 has no is_correct anywhere
+    assert r["results"]["q3"]["any_correct"] is False
+
+
+def test_reveal_correct_endpoint(app_client):
+    admin(app_client)
+    app_client.post("/admin/activate", data={"qid": "q1"})
+    assert app_client.get("/api/admin/state").json()["reveal_correct"] is False
+    app_client.post("/admin/reveal_correct", data={"on": "1"})
+    assert app_client.get("/api/admin/state").json()["reveal_correct"] is True
+    app_client.post("/admin/reveal_correct", data={"on": "0"})
+    assert app_client.get("/api/admin/state").json()["reveal_correct"] is False
+
+
+def test_advancing_to_next_question_resets_reveal_correct(app_client):
+    admin(app_client)
+    app_client.post("/admin/activate", data={"qid": "q1"})
+    app_client.post("/admin/reveal_correct", data={"on": "1"})
+    assert app_client.get("/api/admin/state").json()["reveal_correct"] is True
+    # Pressing Next (or activating any other question) should reset to off.
+    app_client.post("/admin/next")
+    assert app_client.get("/api/admin/state").json()["reveal_correct"] is False
+
+
+def test_admin_renders_correct_class_when_revealed(app_client):
+    admin(app_client)
+    app_client.post("/admin/activate", data={"qid": "q1"})
+    submit_answer(app_client, "q1", "A", "p-alice")  # the wrong answer
+    submit_answer(app_client, "q1", "B", "p-bob")  # the right answer
+    app_client.post("/admin/reveal_correct", data={"on": "1"})
+    r = app_client.get("/admin")
+    assert 'class="bar correct"' in r.text
+    assert 'class="bar dimmed"' in r.text
+
+
+def test_present_renders_correct_class_when_revealed(app_client):
+    admin(app_client)
+    app_client.post("/admin/activate", data={"qid": "q1"})
+    app_client.post("/admin/reveal_correct", data={"on": "1"})
+    r = app_client.get("/present")
+    assert "correct" in r.text
+    assert "dimmed" in r.text
+
+
+# --- DB filename + source filename ------------------------------------------
+
+
+def test_admin_approve_all_bulk_approves(app_client):
+    admin(app_client)
+    app_client.post("/admin/activate", data={"qid": "q2"})
+    submit_answer(app_client, "q2", "first", "p-alice")
+    submit_answer(app_client, "q2", "second", "p-bob")
+    submit_answer(app_client, "q2", "third", "p-carol")
+    r = app_client.post("/admin/approve_all")
+    assert r.status_code == 303
+    # All three should now appear with the Unapprove button.
+    page = app_client.get("/admin").text
+    assert page.count("Unapprove") >= 3
+    # And /present (with reveal on) shows all three.
+    app_client.post("/admin/reveal", data={"on": "1"})
+    pres = app_client.get("/present").text
+    for txt in ("first", "second", "third"):
+        assert txt in pres
+
+
+def test_admin_approve_all_idempotent_picks_up_new(app_client):
+    admin(app_client)
+    app_client.post("/admin/activate", data={"qid": "q2"})
+    submit_answer(app_client, "q2", "first", "p-alice")
+    app_client.post("/admin/approve_all")
+    # New answer arrives; A again accepts it without unapproving the old one.
+    submit_answer(app_client, "q2", "second", "p-bob")
+    app_client.post("/admin/approve_all")
+    page = app_client.get("/admin").text
+    assert page.count("Unapprove") >= 2
+
+
+def test_admin_approve_all_noop_for_mc(app_client):
+    admin(app_client)
+    app_client.post("/admin/activate", data={"qid": "q1"})  # multiple_choice
+    submit_answer(app_client, "q1", "A", "p-alice")
+    r = app_client.post("/admin/approve_all")
+    assert r.status_code == 303
+    # Nothing should have ended up in approved_free_text.
+    from poller import db as dbm
+
+    c = dbm.connect(app_client.app.state.db_path)
+    assert dbm.list_approved_free_text(c, "blue-otter-1234", "q1") == []
+    c.close()
+
+
+def test_admin_approve_all_requires_admin(app_client):
+    r = app_client.post("/admin/approve_all")
+    assert r.status_code == 401
+
+
+def test_session_records_source_yaml_filename(app_client, tmp_path):
+    # Reopen the DB directly to verify the column was populated by the
+    # fixture's create_session() call (which intentionally does not pass one,
+    # so the field is None here -- this just shows the field exists).
+    from poller import db as dbm
+
+    c = dbm.connect(app_client.app.state.db_path)
+    s = dbm.get_session(c)
+    assert "source_yaml_filename" in s
+    c.close()

@@ -18,23 +18,30 @@ SCHEMA = """
 -- One row per session. The questions snapshot is stored as JSON so that
 -- changes to the YAML file after the session starts do not silently alter
 -- what was asked. Use `--migrate-questions` to opt in to changes.
+-- source_yaml_filename records the basename of the YAML the session was
+-- created from (e.g. "questions.yaml"); shown by `poller inspect` so the
+-- DB file's origin is recoverable without opening the snapshot.
 CREATE TABLE IF NOT EXISTS sessions (
     id TEXT PRIMARY KEY,
     title TEXT NOT NULL,
     created_at TEXT NOT NULL,
     questions_json TEXT NOT NULL,
     public_url_override TEXT,
-    admin_token TEXT NOT NULL
+    admin_token TEXT NOT NULL,
+    source_yaml_filename TEXT
 );
 
 -- Tracks which question (if any) is currently active, whether the session
--- has been ended, and whether free-text answers are revealed on /present.
+-- has been ended, and the two presenter "reveal" toggles for /present:
+--   reveal_free_text -- show approved free-text answers
+--   reveal_correct   -- color the correct option(s) of the active MC question
 -- Drives the IDLE / QUESTION_ACTIVE / ENDED state machine.
 CREATE TABLE IF NOT EXISTS state (
     session_id TEXT PRIMARY KEY,
     active_question_id TEXT,
     ended INTEGER NOT NULL DEFAULT 0,
     reveal_free_text INTEGER NOT NULL DEFAULT 0,
+    reveal_correct INTEGER NOT NULL DEFAULT 0,
     FOREIGN KEY (session_id) REFERENCES sessions(id)
 );
 
@@ -85,7 +92,18 @@ def connect(db_path: Path | str) -> sqlite3.Connection:
 
 def init_schema(conn: sqlite3.Connection) -> None:
     conn.executescript(SCHEMA)
+    # SQLite's CREATE TABLE IF NOT EXISTS does not retro-add new columns to
+    # tables created by an earlier version. Anything added to SCHEMA after
+    # v0.1.0 needs an explicit ALTER TABLE here so old DBs pick it up on reopen.
+    _ensure_column(conn, "sessions", "source_yaml_filename", "TEXT")
+    _ensure_column(conn, "state", "reveal_correct", "INTEGER NOT NULL DEFAULT 0")
     conn.commit()
+
+
+def _ensure_column(conn: sqlite3.Connection, table: str, column: str, type_decl: str) -> None:
+    cols = {r[1] for r in conn.execute(f"PRAGMA table_info({table})")}
+    if column not in cols:
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {type_decl}")
 
 
 def now_iso() -> str:
@@ -102,12 +120,20 @@ def create_session(
     title: str,
     questions: list[dict],
     admin_token: str,
+    source_yaml_filename: str | None = None,
 ) -> None:
     """Insert a new session row plus a fresh state row (IDLE)."""
     conn.execute(
-        "INSERT INTO sessions (id, title, created_at, questions_json, admin_token) "
-        "VALUES (?, ?, ?, ?, ?)",
-        (session_id, title, now_iso(), json.dumps(questions), admin_token),
+        "INSERT INTO sessions (id, title, created_at, questions_json, "
+        "admin_token, source_yaml_filename) VALUES (?, ?, ?, ?, ?, ?)",
+        (
+            session_id,
+            title,
+            now_iso(),
+            json.dumps(questions),
+            admin_token,
+            source_yaml_filename,
+        ),
     )
     conn.execute("INSERT INTO state (session_id) VALUES (?)", (session_id,))
     conn.commit()
@@ -116,8 +142,8 @@ def create_session(
 def get_session(conn: sqlite3.Connection) -> dict | None:
     """Return the (only) session in this DB, or None if it has not been created."""
     row = conn.execute(
-        "SELECT id, title, created_at, questions_json, public_url_override, admin_token "
-        "FROM sessions LIMIT 1"
+        "SELECT id, title, created_at, questions_json, public_url_override, "
+        "admin_token, source_yaml_filename FROM sessions LIMIT 1"
     ).fetchone()
     if row is None:
         return None
@@ -128,6 +154,7 @@ def get_session(conn: sqlite3.Connection) -> dict | None:
         "questions": json.loads(row["questions_json"]),
         "public_url_override": row["public_url_override"],
         "admin_token": row["admin_token"],
+        "source_yaml_filename": row["source_yaml_filename"],
     }
 
 
@@ -157,20 +184,29 @@ def replace_questions(conn: sqlite3.Connection, session_id: str, questions: list
 
 def get_state(conn: sqlite3.Connection, session_id: str) -> dict:
     row = conn.execute(
-        "SELECT active_question_id, ended, reveal_free_text FROM state WHERE session_id = ?",
+        "SELECT active_question_id, ended, reveal_free_text, reveal_correct "
+        "FROM state WHERE session_id = ?",
         (session_id,),
     ).fetchone()
     return {
         "active_question_id": row["active_question_id"],
         "ended": bool(row["ended"]),
         "reveal_free_text": bool(row["reveal_free_text"]),
+        "reveal_correct": bool(row["reveal_correct"]),
     }
 
 
 def set_active_question(conn: sqlite3.Connection, session_id: str, question_id: str) -> None:
-    """Activate a question. Clears `ended` so reactivating from ENDED reopens the session."""
+    """Activate a question.
+
+    Side effects:
+      - Clears `ended` so reactivating from ENDED reopens the session.
+      - Resets `reveal_correct` so each new question starts hidden -- you don't
+        accidentally reveal the next question's answer the moment you press Next.
+    """
     conn.execute(
-        "UPDATE state SET active_question_id = ?, ended = 0 WHERE session_id = ?",
+        "UPDATE state SET active_question_id = ?, ended = 0, reveal_correct = 0 "
+        "WHERE session_id = ?",
         (question_id, session_id),
     )
     conn.commit()
@@ -198,6 +234,14 @@ def end_session(conn: sqlite3.Connection, session_id: str) -> None:
 def set_reveal_free_text(conn: sqlite3.Connection, session_id: str, reveal: bool) -> None:
     conn.execute(
         "UPDATE state SET reveal_free_text = ? WHERE session_id = ?",
+        (1 if reveal else 0, session_id),
+    )
+    conn.commit()
+
+
+def set_reveal_correct(conn: sqlite3.Connection, session_id: str, reveal: bool) -> None:
+    conn.execute(
+        "UPDATE state SET reveal_correct = ? WHERE session_id = ?",
         (1 if reveal else 0, session_id),
     )
     conn.commit()
@@ -331,6 +375,31 @@ def approve_free_text(
         (session_id, question_id, response_id),
     )
     conn.commit()
+
+
+def approve_all_existing_free_text(
+    conn: sqlite3.Connection, session_id: str, question_id: str
+) -> int:
+    """Approve every response that already exists for this question.
+
+    Idempotent (INSERT OR IGNORE), so the presenter can press 'A' again after
+    a few new answers come in -- previously-approved ones stay, new ones get
+    approved, none of them get duplicated. Returns the resulting approval row
+    count for this question, mostly for tests.
+    """
+    conn.execute(
+        """
+        INSERT OR IGNORE INTO approved_free_text (session_id, question_id, response_id)
+        SELECT ?, ?, id FROM responses
+        WHERE session_id = ? AND question_id = ?
+        """,
+        (session_id, question_id, session_id, question_id),
+    )
+    conn.commit()
+    return conn.execute(
+        "SELECT COUNT(*) FROM approved_free_text WHERE session_id = ? AND question_id = ?",
+        (session_id, question_id),
+    ).fetchone()[0]
 
 
 def unapprove_free_text(

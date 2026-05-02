@@ -4,11 +4,16 @@ questions:
   - id: q1
     type: multiple_choice
     prompt: "Which metric best captures missed oil spills?"
+    # `is_correct: true` is optional. When set, the presenter can press C
+    # (or click "Show correct" on /admin) to highlight the right answer in
+    # green and dim the others. Multiple options can be marked correct.
+    # If no option has is_correct, the toggle does nothing for this question.
     options:
       - id: A
         label: "Pixel accuracy"
       - id: B
         label: "Instance-wise recall"
+        is_correct: true
       - id: C
         label: "Mean brightness"
 
@@ -18,7 +23,7 @@ questions:
 
   - id: q3
     type: multiple_choice
-    prompt: "Pick a color"
+    prompt: "Pick a color (no correct answer here)"
     options:
       - id: red
         label: "Red"

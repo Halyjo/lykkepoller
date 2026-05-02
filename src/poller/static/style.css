@@ -93,10 +93,19 @@ body.admin main { max-width: 1100px; }
 .q-head .inline { margin-left: auto; }
 .q-results { margin-top: 0.5rem; }
 
-.bar { margin: 0.25rem 0; display: flex; align-items: center; gap: 0.5rem; }
-.bar-fill { background: var(--accent); height: 1rem; border-radius: 4px; min-width: 1px; }
-.bar-label { min-width: 12rem; font-size: 0.95rem; }
+.bar { margin: 0.25rem 0; display: flex; align-items: center; gap: 0.5rem; transition: opacity 200ms ease; }
+.bar-fill { background: var(--accent); height: 1rem; border-radius: 4px; min-width: 1px; transition: background 200ms ease; }
+.bar-label { min-width: 12rem; font-size: 0.95rem; transition: color 200ms ease, font-weight 200ms ease; }
 .bar-count { color: var(--muted); font-size: 0.9rem; }
+
+/* Correct-answer reveal: classy emphasis on the right answer, gentle fade
+   on the rest. The green is darker than the brand accent (no neon), and
+   the dim is opacity rather than a color shift, so it stays readable. */
+.bar.correct .bar-fill { background: #2e7d32; }
+.bar.correct .bar-label { color: #1b5e20; font-weight: 600; }
+.bar.correct .bar-label::before { content: "✓ "; color: #2e7d32; }
+.bar.dimmed { opacity: 0.55; }
+.bar.dimmed .bar-fill { background: #b0b0b0; }
 
 .free-text-list { list-style: none; padding: 0; margin-top: 0.5rem; }
 .free-text-list li {
