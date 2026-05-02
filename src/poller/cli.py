@@ -144,18 +144,11 @@ def _peek_session(db_path: Path) -> dict:
 def _do_migration(db_path: Path, yaml_path: Path, *, assume_yes: bool) -> None:
     """Apply --migrate-questions: load YAML, diff against snapshot, replace if confirmed.
 
-    Migration rules (kept in sync with the README):
-      - questions matched by id; existing responses stay tied to id.
-      - id only in DB: kept (responses still appear in CSV / UI).
-      - id only in YAML: added.
-      - id in both: prompt + options replaced from YAML.
-
-    Risks printed before confirmation:
-      - changing option ids orphans previous responses for that question.
-      - changing a question's `type` for an existing id is not supported.
+    The merge / diff logic is in questions.diff_for_migration; this command
+    just owns the user interaction (printing the summary, surfacing risks,
+    asking for confirmation, writing the result).
     """
-    new_data = questions_mod.load(yaml_path)
-    new_qs = new_data["questions"]
+    new_qs = questions_mod.load(yaml_path)["questions"]
 
     conn = db_module.connect(db_path)
     db_module.init_schema(conn)
@@ -164,50 +157,26 @@ def _do_migration(db_path: Path, yaml_path: Path, *, assume_yes: bool) -> None:
         conn.close()
         raise typer.BadParameter(f"{db_path} has no session row.")
 
-    old_qs = session["questions"]
-    old_by_id = {q["id"]: q for q in old_qs}
-    new_by_id = {q["id"]: q for q in new_qs}
+    diff = questions_mod.diff_for_migration(session["questions"], new_qs)
 
-    added = [qid for qid in new_by_id if qid not in old_by_id]
-    removed_kept = [qid for qid in old_by_id if qid not in new_by_id]
-    updated = [qid for qid in new_by_id if qid in old_by_id]
-
-    type_changes = [qid for qid in updated if old_by_id[qid]["type"] != new_by_id[qid]["type"]]
-    if type_changes:
+    if diff["type_changes"]:
         conn.close()
         raise typer.BadParameter(
-            f"Cannot change question type for existing ids: {type_changes}. Use new ids instead."
+            "Cannot change question type for existing ids: "
+            f"{diff['type_changes']}. Use new ids instead."
         )
 
-    option_id_changes = []
-    for qid in updated:
-        if old_by_id[qid]["type"] == "multiple_choice":
-            old_opts = {o["id"] for o in old_by_id[qid].get("options", [])}
-            new_opts = {o["id"] for o in new_by_id[qid].get("options", [])}
-            if old_opts != new_opts:
-                option_id_changes.append(qid)
-
     typer.echo("Migration summary:")
-    typer.echo(f"  added:    {added or '-'}")
-    typer.echo(f"  updated:  {updated or '-'}")
-    typer.echo(f"  kept (only in DB): {removed_kept or '-'}")
-    if option_id_changes:
+    typer.echo(f"  added:    {diff['added'] or '-'}")
+    typer.echo(f"  updated:  {diff['updated'] or '-'}")
+    typer.echo(f"  kept (only in DB): {diff['kept'] or '-'}")
+    if diff["option_id_changes"]:
         typer.echo("")
-        typer.echo("WARNING: the following questions changed option ids.")
+        typer.echo("WARNING: the following multiple-choice questions changed option ids.")
         typer.echo("Existing responses for those options will appear in CSV but will not")
         typer.echo("aggregate cleanly because they reference ids that no longer exist.")
-        for qid in option_id_changes:
+        for qid in diff["option_id_changes"]:
             typer.echo(f"  - {qid}")
-
-    # Merge: yaml wins for matched ids; db-only ids are preserved at the end.
-    merged = []
-    seen = set()
-    for q in new_qs:
-        merged.append(q)
-        seen.add(q["id"])
-    for q in old_qs:
-        if q["id"] not in seen:
-            merged.append(q)
 
     if not assume_yes:
         if not typer.confirm("Apply migration?", default=False):
@@ -215,7 +184,7 @@ def _do_migration(db_path: Path, yaml_path: Path, *, assume_yes: bool) -> None:
             conn.close()
             raise typer.Exit(code=1)
 
-    db_module.replace_questions(conn, session["id"], merged)
+    db_module.replace_questions(conn, session["id"], diff["merged"])
     typer.echo("Migration applied.")
     conn.close()
 
