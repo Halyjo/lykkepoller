@@ -33,11 +33,11 @@
 <section class="controls">
   <form method="post" action="/admin/prev"><button type="submit" class="big-btn">← Previous</button></form>
   <form method="post" action="/admin/next"><button type="submit" class="big-btn primary">Next →</button></form>
-  <form method="post" action="/admin/clear"><button type="submit" class="big-btn">Clear</button></form>
-  <form method="post" action="/admin/end" onsubmit="return confirm('End session?');"><button type="submit" class="big-btn danger">End session</button></form>
+  <form method="post" action="/admin/clear"><button type="submit" class="big-btn">Clear (Esc)</button></form>
+  <form method="post" action="/admin/end" onsubmit="return confirm('End session?');"><button type="submit" class="big-btn danger">End session (E)</button></form>
   <form method="post" action="/admin/reveal" class="reveal-form">
     <input type="hidden" name="on" value="{{ '0' if state.reveal_free_text else '1' }}">
-    <button type="submit" class="big-btn">{{ 'Hide' if state.reveal_free_text else 'Reveal' }} free-text on /present</button>
+    <button type="submit" class="big-btn">{{ 'Hide' if state.reveal_free_text else 'Reveal' }} free-text on /present (R)</button>
   </form>
   <form method="post" action="/admin/reveal_correct" class="reveal-correct-form">
     <input type="hidden" name="on" value="{{ '0' if state.reveal_correct else '1' }}">
@@ -47,6 +47,20 @@
     <button type="submit" class="big-btn">Approve all so far (A)</button>
   </form>
 </section>
+
+<aside class="shortcuts">
+  <h3>Keyboard shortcuts</h3>
+  <ul>
+    <li><kbd>→</kbd> / <kbd>Space</kbd> next question (end session if on last)</li>
+    <li><kbd>←</kbd> previous question</li>
+    <li><kbd>Esc</kbd> clear active question (back to IDLE)</li>
+    <li><kbd>R</kbd> toggle reveal free-text on /present</li>
+    <li><kbd>C</kbd> toggle show correct answer</li>
+    <li><kbd>A</kbd> approve all free-text submitted so far</li>
+    <li><kbd>E</kbd> end session</li>
+  </ul>
+  <p class="muted">Shortcuts are ignored while typing in a text field.</p>
+</aside>
 
 <section class="questions">
   <h2>Questions</h2>
