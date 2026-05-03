@@ -43,6 +43,16 @@ def run(
     host: str = typer.Option("127.0.0.1", "--host"),
     port: int = typer.Option(8000, "--port"),
     no_tunnel: bool = typer.Option(False, "--no-tunnel", help="Skip cloudflared tunnel (offline/manual)."),
+    domain: str | None = typer.Option(
+        None,
+        "--domain",
+        help="Use a named cloudflared tunnel and advertise https://DOMAIN (e.g. lykkepoller.com).",
+    ),
+    tunnel_name: str | None = typer.Option(
+        None,
+        "--tunnel-name",
+        help="Named-tunnel name. Defaults to the first label of --domain.",
+    ),
 ):
     """Start the polling app for a YAML question file or a saved session DB."""
     if db is None and yaml_path is None:
@@ -90,8 +100,10 @@ def run(
 
     _print_urls(host, port, session_id, admin_token, db_path)
 
+    if tunnel_name and not domain:
+        raise typer.BadParameter("--tunnel-name requires --domain.")
     if not no_tunnel:
-        _start_cloudflared(port, fastapi_app)
+        _start_cloudflared(port, fastapi_app, domain=domain, tunnel_name=tunnel_name)
 
     # cloudflared connects from a Cloudflare IP not in any default trusted list.
     # proxy_headers=True + forwarded_allow_ips="*" makes Uvicorn honor the
@@ -261,16 +273,32 @@ def _friendly_id() -> str:
     return f"{a}-{n}-{secrets.randbelow(9000) + 1000}"
 
 
-def _start_cloudflared(port: int, fastapi_app):
-    """Spawn `cloudflared tunnel --url http://localhost:PORT`, watch its stderr
-    for the trycloudflare URL, and set it on `fastapi_app.state.tunnel_url`.
+def _start_cloudflared(
+    port: int,
+    fastapi_app,
+    domain: str | None = None,
+    tunnel_name: str | None = None,
+):
+    """Spawn cloudflared and set `fastapi_app.state.tunnel_url`.
+
+    Two modes:
+      - Quick tunnel (default): `cloudflared tunnel --url http://localhost:PORT`,
+        watch stderr for the random `*.trycloudflare.com` URL.
+      - Named tunnel (--domain): `cloudflared tunnel --url http://localhost:PORT
+        run NAME`, advertise `https://DOMAIN` immediately. The hostname is fixed
+        by your DNS route, so there's nothing to parse.
 
     Storing on app.state (not the DB) keeps the URL ephemeral: it dies with the
     process, so a later `--db` reopen never picks up a stale tunnel URL.
     """
+    cmd = ["cloudflared", "tunnel", "--url", f"http://localhost:{port}"]
+    if domain:
+        name = tunnel_name or domain.split(".")[0]
+        cmd += ["run", name]
+
     try:
         proc = subprocess.Popen(
-            ["cloudflared", "tunnel", "--url", f"http://localhost:{port}"],
+            cmd,
             stderr=subprocess.PIPE,
             stdout=subprocess.DEVNULL,
             text=True,
@@ -281,6 +309,12 @@ def _start_cloudflared(port: int, fastapi_app):
         return None
 
     atexit.register(_terminate_quietly, proc)
+
+    if domain:
+        url = f"https://{domain}"
+        fastapi_app.state.tunnel_url = url
+        typer.echo(f"\nTunnel:        {url}\n")
+        return proc
 
     def _watch():
         captured: list[str] = []
