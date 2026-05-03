@@ -11,3 +11,8 @@ def png_bytes(url: str) -> bytes:
     buf = io.BytesIO()
     img.save(buf, format="PNG")
     return buf.getvalue()
+
+
+def png_local(url: str, path: str = "presentation/current_qr.png"):
+    img = qrcode.make(url)
+    img.save(path, format="PNG")

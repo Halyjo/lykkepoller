@@ -21,12 +21,12 @@
 <section class="status-row">
   <div class="status">
     <span id="connected-count">{{ connected_count }}</span> connected
-    {% if state.active_question_id %}· <span id="answered-count">{{ answered_count }}</span> answered{% endif %}
+    <span id="answered-section"{% if not state.active_question_id %} style="display:none"{% endif %}>· <span id="answered-count">{{ answered_count }}</span> answered</span>
   </div>
   <div class="status">
-    {% if state.ended %}<span class="badge ended">ENDED</span>
-    {% elif state.active_question_id %}<span class="badge active">ACTIVE</span>
-    {% else %}<span class="badge idle">IDLE</span>{% endif %}
+    {% if state.ended %}<span id="phase-badge" class="badge ended">ENDED</span>
+    {% elif state.active_question_id %}<span id="phase-badge" class="badge active">ACTIVE</span>
+    {% else %}<span id="phase-badge" class="badge idle">IDLE</span>{% endif %}
   </div>
 </section>
 
@@ -37,7 +37,7 @@
   <form method="post" action="/admin/end" onsubmit="return confirm('End session?');"><button type="submit" class="big-btn danger">End session (E)</button></form>
   <form method="post" action="/admin/reveal" class="reveal-form">
     <input type="hidden" name="on" value="{{ '0' if state.reveal_free_text else '1' }}">
-    <button type="submit" class="big-btn">{{ 'Hide' if state.reveal_free_text else 'Reveal' }} free-text on /present (R)</button>
+    <button type="submit" class="big-btn">{{ 'Hide' if state.reveal_free_text else 'Reveal' }} answers on /present (R)</button>
   </form>
   <form method="post" action="/admin/reveal_correct" class="reveal-correct-form">
     <input type="hidden" name="on" value="{{ '0' if state.reveal_correct else '1' }}">
@@ -54,7 +54,7 @@
     <li><kbd>→</kbd> / <kbd>Space</kbd> next question (end session if on last)</li>
     <li><kbd>←</kbd> previous question</li>
     <li><kbd>Esc</kbd> clear active question (back to IDLE)</li>
-    <li><kbd>R</kbd> toggle reveal free-text on /present</li>
+    <li><kbd>R</kbd> toggle reveal answers on /present</li>
     <li><kbd>C</kbd> toggle show correct answer</li>
     <li><kbd>A</kbd> approve all free-text submitted so far</li>
     <li><kbd>E</kbd> end session</li>

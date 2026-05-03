@@ -23,7 +23,7 @@ Main priorities:
 Expected MVP workflow:
 
 ```bash
-uv run poller run examples/questions.yaml
+uv run lykkepoller run examples/questions.yaml
 ```
 
 Then in another terminal:
@@ -96,7 +96,7 @@ Required commands:
 
 ```bash
 uv sync
-uv run poller run examples/questions.yaml
+uv run lykkepoller run examples/questions.yaml
 uv run pytest
 uv run ruff check .
 uv run ruff format .
@@ -125,12 +125,12 @@ Keep dependencies minimal.
 ## Minimal repository structure
 
 ```text
-poller/
+lykkepoller/
   pyproject.toml
   README.md
 
   src/
-    poller/
+    lykkepoller/
       __init__.py
       cli.py
       app.py
@@ -534,7 +534,7 @@ Headers to consider:
 
 By default, Uvicorn **ignores** `X-Forwarded-Proto` and `X-Forwarded-Host` headers unless explicitly told to trust them. If you do not set this, header-reading code will look correct but silently fall back to `localhost` behind cloudflared.
 
-The fix: when starting Uvicorn programmatically (which the `poller run` command does), pass:
+The fix: when starting Uvicorn programmatically (which the `lykkepoller run` command does), pass:
 
 ```python
 uvicorn.run(
@@ -610,7 +610,7 @@ No Chart.js unless it is genuinely simpler than plain HTML/CSS.
 Support:
 
 ```bash
-uv run poller export data/<session-id>.sqlite --output responses.csv
+uv run lykkepoller export data/<session-id>.sqlite --output responses.csv
 ```
 
 Also provide an admin export link.
@@ -632,7 +632,7 @@ Keep export logic in `exports.py`.
 Add a simple command so I can inspect session state without knowing SQL:
 
 ```bash
-uv run poller inspect data/<session-id>.sqlite
+uv run lykkepoller inspect data/<session-id>.sqlite
 ```
 
 Example output:
@@ -659,7 +659,7 @@ This is not optional. A presentation tool must survive restart without losing ev
 Support reopening an existing database:
 
 ```bash
-uv run poller run --db data/<session-id>.sqlite
+uv run lykkepoller run --db data/<session-id>.sqlite
 ```
 
 Behavior on reopen:
@@ -678,7 +678,7 @@ If you reopen with `--db` and the YAML has changed since the session was created
 To explicitly migrate to the new YAML:
 
 ```bash
-uv run poller run --db data/<session-id>.sqlite --migrate-questions examples/questions.yaml
+uv run lykkepoller run --db data/<session-id>.sqlite --migrate-questions examples/questions.yaml
 ```
 
 Migration rules:
@@ -741,12 +741,12 @@ Future ideas, not MVP:
 Required commands:
 
 ```bash
-uv run poller run examples/questions.yaml
-uv run poller run examples/questions.yaml --host 0.0.0.0 --port 8000
-uv run poller run --db data/<session-id>.sqlite
-uv run poller run --db data/<session-id>.sqlite --migrate-questions examples/questions.yaml [--yes]
-uv run poller export data/<session-id>.sqlite --output responses.csv
-uv run poller inspect data/<session-id>.sqlite
+uv run lykkepoller run examples/questions.yaml
+uv run lykkepoller run examples/questions.yaml --host 0.0.0.0 --port 8000
+uv run lykkepoller run --db data/<session-id>.sqlite
+uv run lykkepoller run --db data/<session-id>.sqlite --migrate-questions examples/questions.yaml [--yes]
+uv run lykkepoller export data/<session-id>.sqlite --output responses.csv
+uv run lykkepoller inspect data/<session-id>.sqlite
 ```
 
 Do not overbuild CLI.
@@ -776,7 +776,7 @@ README should explain:
 Include the real recommended MVP workflow:
 
 ```bash
-uv run poller run examples/questions.yaml
+uv run lykkepoller run examples/questions.yaml
 ```
 
 In another terminal:
@@ -797,7 +797,7 @@ Build in this order.
 
 Acceptance criteria:
 
-- `uv run poller run examples/questions.yaml` starts app
+- `uv run lykkepoller run examples/questions.yaml` starts app
 - `/join`, `/admin?token=...`, `/present` all return pages
 - admin lists questions
 - generated admin token works (query param accepted; cookie redirect can come in M5)
@@ -809,8 +809,8 @@ Acceptance criteria:
 - app creates `data/<session-id>.sqlite`
 - schema is created (sessions, state, responses, participants, approved_free_text)
 - session, admin token, and question snapshot are stored
-- `uv run poller inspect ...` works
-- `uv run poller run --db ...` reopens existing session, keeps active question, reuses admin token
+- `uv run lykkepoller inspect ...` works
+- `uv run lykkepoller run --db ...` reopens existing session, keeps active question, reuses admin token
 - database tests pass
 
 ### Milestone 3: State machine, activation, and answers

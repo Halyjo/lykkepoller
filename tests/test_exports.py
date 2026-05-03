@@ -1,7 +1,7 @@
 import csv
 import io
 
-from poller import db, exports
+from lykkepoller import db, exports
 
 
 def make_qs():

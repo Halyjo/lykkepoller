@@ -19,7 +19,7 @@ SCHEMA = """
 -- changes to the YAML file after the session starts do not silently alter
 -- what was asked. Use `--migrate-questions` to opt in to changes.
 -- source_yaml_filename records the basename of the YAML the session was
--- created from (e.g. "questions.yaml"); shown by `poller inspect` so the
+-- created from (e.g. "questions.yaml"); shown by `lykkepoller inspect` so the
 -- DB file's origin is recoverable without opening the snapshot.
 CREATE TABLE IF NOT EXISTS sessions (
     id TEXT PRIMARY KEY,
@@ -201,11 +201,10 @@ def set_active_question(conn: sqlite3.Connection, session_id: str, question_id: 
 
     Side effects:
       - Clears `ended` so reactivating from ENDED reopens the session.
-      - Resets `reveal_correct` so each new question starts hidden -- you don't
-        accidentally reveal the next question's answer the moment you press Next.
+      - Resets both reveal flags so each new question starts with nothing shown.
     """
     conn.execute(
-        "UPDATE state SET active_question_id = ?, ended = 0, reveal_correct = 0 "
+        "UPDATE state SET active_question_id = ?, ended = 0, reveal_correct = 0, reveal_free_text = 0 "
         "WHERE session_id = ?",
         (question_id, session_id),
     )

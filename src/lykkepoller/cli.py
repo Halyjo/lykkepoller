@@ -1,5 +1,8 @@
+import atexit
 import re
 import secrets
+import subprocess
+import threading
 import time
 from pathlib import Path
 
@@ -10,7 +13,7 @@ from . import app as app_module
 from . import db as db_module
 from . import questions as questions_mod
 
-cli = typer.Typer(no_args_is_help=True, help="Poller: minimal live polling for presentations.")
+cli = typer.Typer(no_args_is_help=True, help="Lykkepoller: minimal live polling for presentations.")
 
 DATA_DIR = Path("data")
 
@@ -39,6 +42,7 @@ def run(
     yes: bool = typer.Option(False, "--yes", help="Skip confirmation prompts."),
     host: str = typer.Option("127.0.0.1", "--host"),
     port: int = typer.Option(8000, "--port"),
+    no_tunnel: bool = typer.Option(False, "--no-tunnel", help="Skip cloudflared tunnel (offline/manual)."),
 ):
     """Start the polling app for a YAML question file or a saved session DB."""
     if db is None and yaml_path is None:
@@ -85,6 +89,9 @@ def run(
     fastapi_app = app_module.create_app(db_path=db_path)
 
     _print_urls(host, port, session_id, admin_token, db_path)
+
+    if not no_tunnel:
+        _start_cloudflared(port, fastapi_app)
 
     # cloudflared connects from a Cloudflare IP not in any default trusted list.
     # proxy_headers=True + forwarded_allow_ips="*" makes Uvicorn honor the
@@ -252,6 +259,61 @@ def _friendly_id() -> str:
     a = secrets.choice(adjectives)
     n = secrets.choice(animals)
     return f"{a}-{n}-{secrets.randbelow(9000) + 1000}"
+
+
+def _start_cloudflared(port: int, fastapi_app):
+    """Spawn `cloudflared tunnel --url http://localhost:PORT`, watch its stderr
+    for the trycloudflare URL, and set it on `fastapi_app.state.tunnel_url`.
+
+    Storing on app.state (not the DB) keeps the URL ephemeral: it dies with the
+    process, so a later `--db` reopen never picks up a stale tunnel URL.
+    """
+    try:
+        proc = subprocess.Popen(
+            ["cloudflared", "tunnel", "--url", f"http://localhost:{port}"],
+            stderr=subprocess.PIPE,
+            stdout=subprocess.DEVNULL,
+            text=True,
+            bufsize=1,
+        )
+    except FileNotFoundError:
+        typer.echo("cloudflared not found — install it or use --no-tunnel")
+        return None
+
+    atexit.register(_terminate_quietly, proc)
+
+    def _watch():
+        captured: list[str] = []
+        found = False
+        deadline = time.time() + 30
+        for line in proc.stderr:
+            captured.append(line)
+            if len(captured) > 200:
+                del captured[:100]
+            if not found:
+                m = re.search(r"https://[a-z0-9-]+\.trycloudflare\.com", line)
+                if m:
+                    url = m.group(0)
+                    fastapi_app.state.tunnel_url = url
+                    typer.echo(f"\nTunnel:        {url}\n")
+                    found = True
+                elif time.time() > deadline:
+                    break
+        if not found:
+            typer.echo("Tunnel URL not detected. cloudflared output:")
+            for raw in captured[-20:]:
+                typer.echo(f"  {raw.rstrip()}")
+            typer.echo("Set URL manually in /admin or restart with --no-tunnel.")
+
+    threading.Thread(target=_watch, daemon=True).start()
+    return proc
+
+
+def _terminate_quietly(proc: subprocess.Popen) -> None:
+    try:
+        proc.terminate()
+    except Exception:
+        pass
 
 
 def _print_urls(host: str, port: int, session_id: str, admin_token: str, db_path: Path) -> None:

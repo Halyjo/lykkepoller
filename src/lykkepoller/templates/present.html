@@ -16,15 +16,18 @@
     </div>
     <div id="present-results">
       {% if active_results.type == "multiple_choice" %}
-        {% set show_correct = reveal_correct and active_results.any_correct %}
-        {% for opt in active_results.options %}
-          {% set bar_cls = 'bar' + (' correct' if show_correct and opt.is_correct else (' dimmed' if show_correct else '')) %}
-          <div class="{{ bar_cls }}">
-            <div class="bar-label">{{ opt.label }}</div>
-            <div class="bar-fill" style="width: {{ opt.pct }}%"></div>
-            <div class="bar-count">{{ opt.count }} ({{ opt.pct }}%)</div>
-          </div>
-        {% endfor %}
+        <p class="big">{{ active_results.total }} response{{ '' if active_results.total == 1 else 's' }} received</p>
+        {% if reveal_free_text %}
+          {% set show_correct = reveal_correct and active_results.any_correct %}
+          {% for opt in active_results.options %}
+            {% set bar_cls = 'bar' + (' correct' if show_correct and opt.is_correct else (' dimmed' if show_correct else '')) %}
+            <div class="{{ bar_cls }}">
+              <div class="bar-label">{{ opt.label }}</div>
+              <div class="bar-fill" style="width: {{ opt.pct }}%"></div>
+              <div class="bar-count">{{ opt.count }} ({{ opt.pct }}%)</div>
+            </div>
+          {% endfor %}
+        {% endif %}
       {% else %}
         <p class="big">{{ active_results.total }} response{{ '' if active_results.total == 1 else 's' }} received</p>
         {% if reveal_free_text and active_results.approved_answers %}

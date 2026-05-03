@@ -10,7 +10,7 @@ import time
 
 import pytest
 
-from poller import db
+from lykkepoller import db
 
 
 def make_qs():

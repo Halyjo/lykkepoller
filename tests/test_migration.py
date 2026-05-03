@@ -11,8 +11,8 @@ import pytest
 import typer
 import yaml
 
-from poller import cli as cli_mod
-from poller import db, questions
+from lykkepoller import cli as cli_mod
+from lykkepoller import db, questions
 
 
 def make_qs():
@@ -131,7 +131,7 @@ def test_cli_migration_applies_with_yes(tmp_path: Path):
     new_qs.append({"id": "q3", "type": "free_text", "prompt": "How?"})
     yaml_path = write_yaml(tmp_path / "new.yaml", new_qs)
 
-    # Calling `poller run` end-to-end would start uvicorn; we exercise the
+    # Calling `lykkepoller run` end-to-end would start uvicorn; we exercise the
     # migration helper directly to keep the test fast.
     cli_mod._do_migration(db_path, yaml_path, assume_yes=True)
 

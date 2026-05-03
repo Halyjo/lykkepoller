@@ -1,4 +1,4 @@
-# poller
+# Lykkepoller
 
 Minimal local-first live polling app for presentations and teaching.
 
@@ -33,7 +33,7 @@ uv sync
 ## Run a local demo
 
 ```bash
-uv run poller run examples/questions.yaml
+uv run lykkepoller run questions/demo_questions.yaml
 ```
 
 The terminal prints something like:
@@ -57,7 +57,7 @@ Quick Tunnel:
 
 ```bash
 # terminal 1
-uv run poller run examples/questions.yaml
+uv run lykkepoller run questions/demo_questions.yaml
 
 # terminal 2
 cloudflared tunnel --url http://localhost:8000
@@ -76,7 +76,7 @@ tunnel URL -- no `--public-url` flag, no restart.
 ### The Uvicorn proxy-headers footgun
 
 By default, Uvicorn ignores `X-Forwarded-*` headers unless explicitly told
-to trust them. The `poller run` command starts Uvicorn with:
+to trust them. The `lykkepoller run` command starts Uvicorn with:
 
 ```python
 uvicorn.run(app, host=host, port=port,
@@ -229,7 +229,7 @@ individually after the bulk-approve.
 From the admin page, click "Download CSV". From the command line:
 
 ```bash
-uv run poller export data/<session-id>.sqlite --output responses.csv
+uv run lykkepoller export data/<session-id>.sqlite --output responses.csv
 ```
 
 Columns:
@@ -246,7 +246,7 @@ option id is no longer present.
 ## Inspect a database
 
 ```bash
-uv run poller inspect data/<session-id>.sqlite
+uv run lykkepoller inspect data/<session-id>.sqlite
 ```
 
 Prints session id, title, number of questions, number of responses,
@@ -268,10 +268,10 @@ data/2026-05-09-week2-quiz-quiet-raven-3320.sqlite
 Reopen with:
 
 ```bash
-uv run poller run --db data/2026-05-02-SAR-presentation-blue-otter-4281.sqlite
+uv run lykkepoller run --db data/2026-05-02-SAR-presentation-blue-otter-4281.sqlite
 ```
 
-(`poller inspect <db>` also prints the source YAML filename it was
+(`lykkepoller inspect <db>` also prints the source YAML filename it was
 created from, in case the file was renamed.)
 
 On reopen:
@@ -293,8 +293,8 @@ stored in SQLite is what was asked, and the snapshot wins. To opt in to
 changes:
 
 ```bash
-uv run poller run --db data/blue-otter-4281.sqlite \
-  --migrate-questions examples/questions.yaml
+uv run lykkepoller run --db data/blue-otter-4281.sqlite \
+  --migrate-questions questions/demo_questions.yaml
 ```
 
 The migration prints a summary (added / updated / kept) and asks for
@@ -337,7 +337,7 @@ machine, answer submission, results, CSV export, public URL inference).
 ## File layout
 
 ```text
-src/poller/
+src/lykkepoller/
   __init__.py
   cli.py          # typer commands: run / inspect / export
   app.py          # FastAPI routes, session/state helpers
@@ -347,8 +347,8 @@ src/poller/
   exports.py      # CSV export
   templates/      # base.html, participant.html, admin.html, present.html
   static/         # style.css, app.js
-examples/
-  questions.yaml
+questions/
+  demo_questions.yaml
 data/
   <session-id>.sqlite  (one per session)
 tests/

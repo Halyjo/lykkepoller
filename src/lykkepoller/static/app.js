@@ -109,12 +109,50 @@ async function pollAdmin() {
   setText("connected-count", data.connected_count);
   setText("answered-count", data.answered_count);
 
+  // answered-section visibility
+  const answeredSection = document.getElementById("answered-section");
+  if (answeredSection) answeredSection.style.display = data.active_question_id ? "" : "none";
+
+  // phase badge
+  const badge = document.getElementById("phase-badge");
+  if (badge) {
+    const [cls, text] = data.phase === "ended" ? ["ended", "ENDED"]
+      : data.active_question_id ? ["active", "ACTIVE"]
+      : ["idle", "IDLE"];
+    badge.className = `badge ${cls}`;
+    badge.textContent = text;
+  }
+
+  // active question highlight + activate button label
+  document.querySelectorAll(".question-item").forEach(item => {
+    const isActive = item.dataset.qid === data.active_question_id;
+    item.classList.toggle("active", isActive);
+    const btn = item.querySelector('form[action="/admin/activate"] button');
+    if (btn) btn.textContent = isActive ? "Active" : "Activate";
+  });
+
+  // reveal free-text toggle button
+  const revealFTForm = document.querySelector('form[action="/admin/reveal"]');
+  if (revealFTForm) {
+    const inp = revealFTForm.querySelector('input[name="on"]');
+    if (inp) inp.value = data.reveal_free_text ? "0" : "1";
+    const btn = revealFTForm.querySelector("button");
+    if (btn) btn.textContent = (data.reveal_free_text ? "Hide" : "Reveal") + " answers on /present (R)";
+  }
+
+  // reveal correct toggle button
+  const revealCorrForm = document.querySelector('form[action="/admin/reveal_correct"]');
+  if (revealCorrForm) {
+    const inp = revealCorrForm.querySelector('input[name="on"]');
+    if (inp) inp.value = data.reveal_correct ? "0" : "1";
+    const btn = revealCorrForm.querySelector("button");
+    if (btn) btn.textContent = (data.reveal_correct ? "Hide" : "Show") + " correct (C)";
+  }
+
   for (const [qid, r] of Object.entries(data.results)) {
     const c = document.querySelector(`.q-results[data-qid="${cssEscape(qid)}"]`);
     if (!c) continue;
     if (r.type === "multiple_choice") {
-      // Correctness colors only apply to the active question -- past
-      // questions are not retroactively repainted.
       const isActive = qid === data.active_question_id;
       const showCorrect = data.reveal_correct && isActive && r.any_correct;
       c.innerHTML = renderMCBars(r, showCorrect);
@@ -198,23 +236,25 @@ async function pollPresent() {
     if (!results) return;
     if (data.active_results.type === "multiple_choice") {
       const showCorrect = data.reveal_correct && data.active_results.any_correct;
-      results.innerHTML = renderMCPresent(data.active_results, showCorrect);
+      results.innerHTML = renderMCPresent(data.active_results, data.reveal_free_text, showCorrect);
     } else {
       results.innerHTML = renderFreeTextPresent(data.active_results, data.reveal_free_text);
     }
   }
 }
 
-function renderMCPresent(r, showCorrect) {
-  let html = "";
-  for (const opt of r.options) {
-    const cls = showCorrect ? (opt.is_correct ? "correct" : "dimmed") : "";
-    html +=
-      `<div class="bar ${cls}">` +
-      `<div class="bar-label">${escapeHtml(opt.label)}</div>` +
-      `<div class="bar-fill" style="width: ${opt.pct}%"></div>` +
-      `<div class="bar-count">${opt.count} (${opt.pct}%)</div>` +
-      `</div>`;
+function renderMCPresent(r, reveal, showCorrect) {
+  let html = `<p class="big">${r.total} response${r.total === 1 ? "" : "s"} received</p>`;
+  if (reveal) {
+    for (const opt of r.options) {
+      const cls = showCorrect ? (opt.is_correct ? "correct" : "dimmed") : "";
+      html +=
+        `<div class="bar ${cls}">` +
+        `<div class="bar-label">${escapeHtml(opt.label)}</div>` +
+        `<div class="bar-fill" style="width: ${opt.pct}%"></div>` +
+        `<div class="bar-count">${opt.count} (${opt.pct}%)</div>` +
+        `</div>`;
+    }
   }
   return html;
 }
@@ -241,10 +281,14 @@ function bindAdminShortcuts() {
 
     const submit = (selector) => {
       const f = document.querySelector(selector);
-      if (f) {
-        e.preventDefault();
-        f.submit();
-      }
+      if (!f) return;
+      e.preventDefault();
+      fetch(f.action, {method: "POST", body: new FormData(f), credentials: "same-origin"})
+        .then(() => pollAdmin())
+        .then(() => {
+          const active = document.querySelector(".question-item.active");
+          if (active) active.scrollIntoView({behavior: "smooth", block: "nearest"});
+        });
     };
 
     switch (e.key) {

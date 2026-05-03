@@ -5,8 +5,8 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from poller import app as app_module
-from poller import db
+from lykkepoller import app as app_module
+from lykkepoller import db
 
 
 def make_qs():
@@ -237,7 +237,7 @@ def test_admin_free_text_approve_toggle(app_client):
     assert "first answer" in r.text
     assert "second answer" in r.text
     # Find the response id of the first answer for the approve POST.
-    from poller import db as dbm
+    from lykkepoller import db as dbm
 
     c = dbm.connect(app_client.app.state.db_path)
     rows = dbm.list_responses(c, "blue-otter-1234", "q2")
@@ -272,7 +272,7 @@ def test_present_shows_only_approved_when_revealed(app_client):
     submit_answer(app_client, "q2", "ok answer", "p-alice")
     submit_answer(app_client, "q2", "off-color answer", "p-bob")
 
-    from poller import db as dbm
+    from lykkepoller import db as dbm
 
     c = dbm.connect(app_client.app.state.db_path)
     rows = dbm.list_responses(c, "blue-otter-1234", "q2")
@@ -387,6 +387,27 @@ def test_join_url_uses_forwarded_host(app_client):
     assert "source: headers" in r.text
 
 
+def test_tunnel_url_used_when_no_override(app_client):
+    # Simulates what cli._start_cloudflared does after parsing the URL out of
+    # cloudflared's stderr: it sets app.state.tunnel_url. compute_base_url
+    # should pick that up for local requests (no x-forwarded-host).
+    admin(app_client)
+    app_client.app.state.tunnel_url = "https://abc-def-ghi.trycloudflare.com"
+    r = app_client.get("/admin")
+    assert "https://abc-def-ghi.trycloudflare.com/join" in r.text
+    assert "source: tunnel" in r.text
+
+
+def test_manual_override_beats_tunnel_url(app_client):
+    # Manual override (typed in /admin form) wins over the auto tunnel URL.
+    admin(app_client)
+    app_client.app.state.tunnel_url = "https://abc-def-ghi.trycloudflare.com"
+    app_client.post("/admin/override", data={"url": "https://my.example"})
+    r = app_client.get("/admin")
+    assert "https://my.example/join" in r.text
+    assert "source: override" in r.text
+
+
 # --- correct-answer reveal --------------------------------------------------
 
 
@@ -483,7 +504,7 @@ def test_admin_approve_all_noop_for_mc(app_client):
     r = app_client.post("/admin/approve_all")
     assert r.status_code == 303
     # Nothing should have ended up in approved_free_text.
-    from poller import db as dbm
+    from lykkepoller import db as dbm
 
     c = dbm.connect(app_client.app.state.db_path)
     assert dbm.list_approved_free_text(c, "blue-otter-1234", "q1") == []
@@ -499,7 +520,7 @@ def test_session_records_source_yaml_filename(app_client, tmp_path):
     # Reopen the DB directly to verify the column was populated by the
     # fixture's create_session() call (which intentionally does not pass one,
     # so the field is None here -- this just shows the field exists).
-    from poller import db as dbm
+    from lykkepoller import db as dbm
 
     c = dbm.connect(app_client.app.state.db_path)
     s = dbm.get_session(c)

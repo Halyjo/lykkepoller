@@ -18,7 +18,7 @@ TEMPLATES = Jinja2Templates(directory=str(PACKAGE_DIR / "templates"))
 
 
 def create_app(*, db_path: Path) -> FastAPI:
-    app = FastAPI(title="poller")
+    app = FastAPI(title="lykkepoller")
 
     # One shared sqlite connection for the life of the app. SQLite serializes
     # writes internally, and our write rate (presenter clicks, occasional answer
@@ -33,6 +33,9 @@ def create_app(*, db_path: Path) -> FastAPI:
     app.state.db_path = db_path
     app.state.session_id = session["id"]
     app.state.admin_token = session["admin_token"]
+    # Set by the cloudflared watcher in cli._start_cloudflared once the public
+    # URL is parsed. Stays None when --no-tunnel or when cloudflared fails.
+    app.state.tunnel_url = None
 
     app.mount(
         "/static",
@@ -111,19 +114,24 @@ def create_app(*, db_path: Path) -> FastAPI:
         """Return (base_url, source) for the public-facing URL.
 
         Priority:
-          1. manual override stored on the session row
-          2. X-Forwarded-Host / X-Forwarded-Proto (set by cloudflared)
-          3. request.base_url (Uvicorn already honors X-Forwarded-Proto when
+          1. manual override stored on the session row (typed in /admin form)
+          2. tunnel URL set by the cloudflared watcher (in-memory, this process)
+          3. X-Forwarded-Host / X-Forwarded-Proto (set by cloudflared on its
+             own traffic)
+          4. request.base_url (Uvicorn already honors X-Forwarded-Proto when
              started with proxy_headers=True; the host comes from the Host header)
 
-        `source` is one of "override" / "headers" / "request" / "localhost".
-        It is shown on /admin so the presenter can see where the join URL came
-        from without guessing.
+        `source` is one of "override" / "tunnel" / "headers" / "request" /
+        "localhost". It is shown on /admin so the presenter can see where the
+        join URL came from without guessing.
         """
         sess = db_module.get_session(conn)
         override = (sess or {}).get("public_url_override")
         if override:
             return override.rstrip("/"), "override"
+        tunnel = getattr(app.state, "tunnel_url", None)
+        if tunnel:
+            return tunnel.rstrip("/"), "tunnel"
         fwd_host = request.headers.get("x-forwarded-host")
         if fwd_host:
             proto = request.headers.get("x-forwarded-proto") or request.url.scheme
@@ -429,6 +437,7 @@ def create_app(*, db_path: Path) -> FastAPI:
         # local dev it falls back to http://127.0.0.1:port/join.
         base, _ = compute_base_url(request)
         png = qr_mod.png_bytes(base + "/join")
+        qr_mod.png_local(base + "/join", path="presentations/current_qr.png")
         return Response(content=png, media_type="image/png")
 
     # --- live polling JSON -----------------------------------------------------

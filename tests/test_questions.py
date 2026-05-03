@@ -1,6 +1,6 @@
 import pytest
 
-from poller import questions
+from lykkepoller import questions
 
 
 def _ok():
