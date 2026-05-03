@@ -20,7 +20,6 @@ sees results on `/present`; participants answer on `/join`.
 - Not a Kahoot/Mentimeter/Slido clone.
 - No accounts, no scoring, no leaderboard, no realtime websockets.
 - No frontend build system. No ORM.
-- No automated tunnel management -- you run cloudflared yourself.
 
 ## Install
 
@@ -50,28 +49,44 @@ Database:      data/blue-otter-4281.sqlite
 Open the admin URL on your laptop. Show `/present` on the projector. Open
 `/join` on a phone (use a tunnel URL, see below).
 
-## Run with Cloudflare Quick Tunnel
+## Run with a public tunnel
 
-Local-only is rarely useful for an audience. Pair this with a Cloudflare
-Quick Tunnel:
+By default, `lykkepoller run` spawns a Cloudflare Quick Tunnel for you and
+picks up its public URL automatically. The terminal prints a `Tunnel:` line
+once cloudflared is up:
 
-```bash
-# terminal 1
-uv run lykkepoller run questions/demo_questions.yaml
-
-# terminal 2
-cloudflared tunnel --url http://localhost:8000
+```
+Tunnel:        https://something.trycloudflare.com
 ```
 
-Cloudflare prints a temporary public URL, e.g.
-`https://something.trycloudflare.com`. Open the tunnel URL on your laptop
-and append the admin path printed in terminal 1, e.g.
-`https://something.trycloudflare.com/admin?token=winter-fox-1934`.
+Open that URL on your laptop and append the admin path printed earlier,
+e.g. `https://something.trycloudflare.com/admin?token=winter-fox-1934`.
+
+You need [`cloudflared`](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/)
+on your `PATH`. To skip tunnelling entirely, pass `--no-tunnel`.
+
+### Use your own domain
+
+If you have a domain on Cloudflare with a [named tunnel][named] routed to
+it, point `--domain` at the hostname:
+
+```bash
+uv run lykkepoller run questions/demo_questions.yaml --domain lykkepoller.com
+```
+
+This spawns `cloudflared tunnel --url http://localhost:8000 run <name>`,
+where `<name>` defaults to the first DNS label of `--domain` (override with
+`--tunnel-name`). The advertised URL is `https://lykkepoller.com`
+immediately — no random subdomain to copy each time.
+
+[named]: https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/get-started/create-remote-tunnel/
+
+### How the app discovers its public URL
 
 The app *infers* the public base URL from the `X-Forwarded-Host` /
 `X-Forwarded-Proto` headers cloudflared sends, so the QR code on
 `/present` and the join URL shown on `/admin` automatically point at the
-tunnel URL -- no `--public-url` flag, no restart.
+tunnel URL — no `--public-url` flag, no restart.
 
 ### The Uvicorn proxy-headers footgun
 
