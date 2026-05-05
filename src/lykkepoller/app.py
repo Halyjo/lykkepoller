@@ -437,7 +437,7 @@ def create_app(*, db_path: Path) -> FastAPI:
         # local dev it falls back to http://127.0.0.1:port/join.
         base, _ = compute_base_url(request)
         png = qr_mod.png_bytes(base + "/join")
-        qr_mod.png_local(base + "/join", path="presentations/current_qr.png")
+        qr_mod.png_local(base + "/join", path="QR.png")
         return Response(content=png, media_type="image/png")
 
     # --- live polling JSON -----------------------------------------------------
