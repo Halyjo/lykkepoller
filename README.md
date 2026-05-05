@@ -23,8 +23,7 @@ sees results on `/present`; participants answer on `/join`.
 
 ## Install
 
-Requires Python 3.11+ and [`uv`](https://docs.astral.sh/uv/).
-
+Requires Python 3.11+, [`uv`](https://docs.astral.sh/uv/) and cloudflared. 
 ```bash
 uv sync
 ```
