@@ -87,15 +87,25 @@ async function pollParticipant() {
 
   const currentPhase = root.dataset.phase || "";
   const currentQid = root.dataset.qid || "";
+  const currentPriorMc = root.dataset.priorMc || "";
   const nextPhase = data.phase;
   const nextQid =
     data.phase === "active" && data.active_question ? data.active_question.id : "";
+  const nextPriorMc = data.prior_mc_answer || "";
 
   // Only reload on transitions that change the rendered structure. Staying on
   // the same active question (counts ticking up server-side) does not affect
   // what the participant sees, so we leave their form alone -- in particular,
   // we do not clobber half-typed text in a free-text answer.
-  if (currentPhase !== nextPhase || currentQid !== nextQid) {
+  // Exception: if a fresh MC answer just got recorded for this participant
+  // (data-prior-mc went from "" to a value), we reload so the form locks --
+  // matters when the participant has multiple tabs open or submits via a
+  // path that didn't full-reload.
+  if (
+    currentPhase !== nextPhase ||
+    currentQid !== nextQid ||
+    (!currentPriorMc && nextPriorMc)
+  ) {
     window.location.reload();
   }
 }
@@ -235,17 +245,21 @@ async function pollPresent() {
     const results = document.getElementById("present-results");
     if (!results) return;
     if (data.active_results.type === "multiple_choice") {
+      // Bars are visible when R OR C is on (matches present.html). C alone
+      // is enough -- if the presenter wants to show the correct answer, it
+      // would be silly to require also pressing R first.
+      const showBars = data.reveal_free_text || data.reveal_correct;
       const showCorrect = data.reveal_correct && data.active_results.any_correct;
-      results.innerHTML = renderMCPresent(data.active_results, data.reveal_free_text, showCorrect);
+      results.innerHTML = renderMCPresent(data.active_results, showBars, showCorrect);
     } else {
       results.innerHTML = renderFreeTextPresent(data.active_results, data.reveal_free_text);
     }
   }
 }
 
-function renderMCPresent(r, reveal, showCorrect) {
+function renderMCPresent(r, showBars, showCorrect) {
   let html = `<p class="big">${r.total} response${r.total === 1 ? "" : "s"} received</p>`;
-  if (reveal) {
+  if (showBars) {
     for (const opt of r.options) {
       const cls = showCorrect ? (opt.is_correct ? "correct" : "dimmed") : "";
       html +=

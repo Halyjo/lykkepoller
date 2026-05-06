@@ -163,8 +163,24 @@ def test_answer_mc_records_response(app_client):
     r = app_client.post("/answer", data={"question_id": "q1", "answer": "A"})
     assert r.status_code == 303
     r = app_client.get("/join")
-    # Submitted message should be present after a successful answer.
-    assert "Your answer is recorded" in r.text
+    # Issue #5: after submitting, the form is replaced with a locked
+    # "You answered: ..." block so the participant cannot re-pick.
+    assert "You answered" in r.text
+    assert "Apple" in r.text  # the chosen option's label is shown
+    assert 'name="answer"' not in r.text  # the form is gone
+
+
+def test_mc_resubmit_does_not_change_answer(app_client):
+    """Issue #5: even if a malicious / impatient participant POSTs again,
+    their first answer stands."""
+    admin(app_client)
+    app_client.post("/admin/activate", data={"qid": "q1"})
+    app_client.post("/answer", data={"question_id": "q1", "answer": "A"})
+    app_client.post("/answer", data={"question_id": "q1", "answer": "B"})
+    r = app_client.get("/api/admin/state").json()
+    by_id = {o["id"]: o for o in r["results"]["q1"]["options"]}
+    assert by_id["A"]["count"] == 1
+    assert by_id["B"]["count"] == 0
 
 
 def test_answer_free_text_records_response(app_client):
@@ -172,17 +188,26 @@ def test_answer_free_text_records_response(app_client):
     app_client.post("/admin/activate", data={"qid": "q2"})
     app_client.post("/answer", data={"question_id": "q2", "answer": "because"})
     r = app_client.get("/join")
-    assert "because" in r.text  # textarea pre-filled with prior answer
+    # Issue #6: the textarea is NOT pre-filled (so the participant can write
+    # a new answer easily), but a hint confirms the submission landed.
+    assert "Your answer is recorded" in r.text
+    # The textarea should be empty (no value attribute / no inner text).
+    assert ">because</textarea>" not in r.text
 
 
-def test_answer_resubmit_replaces(app_client):
+def test_answer_free_text_allows_multiple_submits(app_client):
+    """Issue #6: free text is append-only -- submitting twice keeps both."""
     admin(app_client)
     app_client.post("/admin/activate", data={"qid": "q2"})
     app_client.post("/answer", data={"question_id": "q2", "answer": "first"})
     app_client.post("/answer", data={"question_id": "q2", "answer": "second"})
-    r = app_client.get("/join")
+    # Both answers should be visible to the admin.
+    r = app_client.get("/admin")
+    assert "first" in r.text
     assert "second" in r.text
-    assert "first" not in r.text
+    # Participant page hint reflects the count.
+    r = app_client.get("/join")
+    assert "2 answers recorded" in r.text
 
 
 def test_answer_invalid_mc_option_ignored(app_client):
@@ -190,8 +215,10 @@ def test_answer_invalid_mc_option_ignored(app_client):
     app_client.post("/admin/activate", data={"qid": "q1"})
     app_client.post("/answer", data={"question_id": "q1", "answer": "BOGUS"})
     r = app_client.get("/join")
-    # No "your answer is recorded" because we silently dropped the bogus value.
-    assert "Your answer is recorded" not in r.text
+    # No "you answered" lock because we silently dropped the bogus value;
+    # the form is still rendered and ready for a real answer.
+    assert "You answered" not in r.text
+    assert 'name="answer"' in r.text
 
 
 def test_answer_for_inactive_question_ignored(app_client):
@@ -248,13 +275,37 @@ def test_admin_free_text_approve_toggle(app_client):
     assert "Unapprove" in r.text  # button text flips after approval
 
 
-def test_present_mc_results_visible(app_client):
+def test_present_mc_results_hidden_until_revealed(app_client):
+    """MC bars on /present are hidden until the presenter presses R or C.
+    The total count is always shown so the audience knows responses are
+    coming in."""
     admin(app_client)
     app_client.post("/admin/activate", data={"qid": "q1"})
     submit_answer(app_client, "q1", "A", "p-alice")
     r = app_client.get("/present")
+    assert "1 response received" in r.text
+    assert 'class="bar' not in r.text  # bars hidden
+    # After R, bars appear.
+    app_client.post("/admin/reveal", data={"on": "1"})
+    r = app_client.get("/present")
     assert "Apple" in r.text
     assert "1 (100%)" in r.text
+
+
+def test_present_show_correct_alone_reveals_bars(app_client):
+    """Pressing C (Show correct) on its own should be enough to reveal the
+    bar chart -- otherwise the highlight has nothing to land on. This was
+    the 'reveal still does not work' bug."""
+    admin(app_client)
+    app_client.post("/admin/activate", data={"qid": "q1"})
+    submit_answer(app_client, "q1", "B", "p-alice")  # the correct option
+    # Note: not pressing R. Just C.
+    app_client.post("/admin/reveal_correct", data={"on": "1"})
+    r = app_client.get("/present")
+    assert "Apple" in r.text
+    assert "Banana" in r.text
+    assert 'class="bar correct"' in r.text
+    assert 'class="bar dimmed"' in r.text
 
 
 def test_present_free_text_shows_count_only_by_default(app_client):

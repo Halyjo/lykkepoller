@@ -48,9 +48,14 @@ def test_init_schema_idempotent(tmp_path):
     db.init_schema(c)  # should not raise
     rows = c.execute("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name").fetchall()
     names = [r["name"] for r in rows]
-    assert {"sessions", "state", "responses", "participants", "approved_free_text"}.issubset(
-        set(names)
-    )
+    assert {
+        "sessions",
+        "state",
+        "unique_responses",
+        "append_responses",
+        "participants",
+        "approved_free_text",
+    }.issubset(set(names))
 
 
 def test_create_and_read_session(conn, session):
@@ -188,49 +193,69 @@ def test_init_schema_migrates_old_db(tmp_path):
 # --- responses ----------------------------------------------------------------
 
 
-def test_insert_response_and_read_it_back(conn, session):
-    db.insert_response(conn, session, "q1", "p-alice", "A")
-    assert db.get_response(conn, session, "q1", "p-alice") == "A"
-    rows = db.list_text_responses(conn, session, "q1")
-    assert len(rows) == 1 and rows[0]["answer"] == "A"
+def test_record_mc_answer_and_read_back(conn, session):
+    assert db.record_unique_answer(conn, session, "q1", "p-alice", "A") is True
+    assert db.get_unique_answer(conn, session, "q1", "p-alice") == "A"
 
 
-def test_resubmit_replaces_previous_answer(conn, session):
-    db.insert_response(conn, session, "q1", "p-alice", "A")
-    db.insert_response(conn, session, "q1", "p-alice", "B")
-    rows = db.list_text_responses(conn, session, "q1")
-    assert len(rows) == 1
-    assert rows[0]["answer"] == "B"
+def test_mc_resubmit_is_silently_dropped(conn, session):
+    """Issue #5: MC answers cannot be changed. Second submit returns False
+    and leaves the original in place."""
+    assert db.record_unique_answer(conn, session, "q1", "p-alice", "A") is True
+    assert db.record_unique_answer(conn, session, "q1", "p-alice", "B") is False
+    assert db.get_unique_answer(conn, session, "q1", "p-alice") == "A"
+    # And aggregate counts reflect only the original answer.
+    assert db.aggregate_choice_counts(conn, session, "q1") == {"A": 1}
+
+
+def test_free_text_appends_each_submit(conn, session):
+    """Issue #6: free text accepts multiple submissions per participant."""
+    db.append_text_answer(conn, session, "q2", "p-alice", "first")
+    db.append_text_answer(conn, session, "q2", "p-alice", "second")
+    rows = db.list_text_responses(conn, session, "q2")
+    assert [r["answer"] for r in rows] == ["first", "second"]
+    assert db.participant_text_count(conn, session, "q2", "p-alice") == 2
 
 
 def test_different_participants_can_answer_same_question(conn, session):
-    db.insert_response(conn, session, "q1", "p-alice", "A")
-    db.insert_response(conn, session, "q1", "p-bob", "B")
-    db.insert_response(conn, session, "q1", "p-carol", "A")
+    db.record_unique_answer(conn, session, "q1", "p-alice", "A")
+    db.record_unique_answer(conn, session, "q1", "p-bob", "B")
+    db.record_unique_answer(conn, session, "q1", "p-carol", "A")
     counts = db.aggregate_choice_counts(conn, session, "q1")
     assert counts == {"A": 2, "B": 1}
 
 
 def test_same_participant_can_answer_different_questions(conn, session):
-    db.insert_response(conn, session, "q1", "p-alice", "A")
-    db.insert_response(conn, session, "q2", "p-alice", "because reasons")
-    assert db.get_response(conn, session, "q1", "p-alice") == "A"
-    assert db.get_response(conn, session, "q2", "p-alice") == "because reasons"
+    db.record_unique_answer(conn, session, "q1", "p-alice", "A")
+    db.append_text_answer(conn, session, "q2", "p-alice", "because reasons")
+    assert db.get_unique_answer(conn, session, "q1", "p-alice") == "A"
+    rows = db.list_text_responses(conn, session, "q2")
+    assert rows[0]["answer"] == "because reasons"
 
 
 def test_count_responses(conn, session):
-    db.insert_response(conn, session, "q1", "p-alice", "A")
-    db.insert_response(conn, session, "q1", "p-bob", "B")
+    db.record_unique_answer(conn, session, "q1", "p-alice", "A")
+    db.record_unique_answer(conn, session, "q1", "p-bob", "B")
     assert db.count_responses(conn, session, "q1") == 2
     assert db.count_responses(conn, session, "q2") == 0
 
 
 def test_count_answered_distinct(conn, session):
-    db.insert_response(conn, session, "q1", "p-alice", "A")
-    # Same participant resubmitting must not be double-counted.
-    db.insert_response(conn, session, "q1", "p-alice", "B")
-    db.insert_response(conn, session, "q1", "p-bob", "B")
+    db.record_unique_answer(conn, session, "q1", "p-alice", "A")
+    # Resubmits get dropped, so no double-count concern for MC.
+    db.record_unique_answer(conn, session, "q1", "p-alice", "B")
+    db.record_unique_answer(conn, session, "q1", "p-bob", "B")
     assert db.count_answered(conn, session, "q1") == 2
+
+
+def test_count_answered_free_text_distinct(conn, session):
+    # Free text: same participant submitting many times still counts as one
+    # "answered" person.
+    db.append_text_answer(conn, session, "q2", "p-alice", "first")
+    db.append_text_answer(conn, session, "q2", "p-alice", "second")
+    db.append_text_answer(conn, session, "q2", "p-bob", "x")
+    assert db.count_answered(conn, session, "q2") == 2
+    assert db.count_responses(conn, session, "q2") == 3
 
 
 # --- heartbeats / connected count ---------------------------------------------
@@ -274,9 +299,9 @@ def test_count_connected_window(conn, session):
 
 
 def test_approve_all_existing_free_text(conn, session):
-    db.insert_response(conn, session, "q2", "p-alice", "first")
-    db.insert_response(conn, session, "q2", "p-bob", "second")
-    db.insert_response(conn, session, "q2", "p-carol", "third")
+    db.append_text_answer(conn, session, "q2", "p-alice", "first")
+    db.append_text_answer(conn, session, "q2", "p-bob", "second")
+    db.append_text_answer(conn, session, "q2", "p-carol", "third")
     n = db.approve_all_existing_free_text(conn, session, "q2")
     assert n == 3
     assert {a["answer"] for a in db.list_approved_free_text(conn, session, "q2")} == {
@@ -287,26 +312,26 @@ def test_approve_all_existing_free_text(conn, session):
 
 
 def test_approve_all_is_idempotent_and_picks_up_new(conn, session):
-    db.insert_response(conn, session, "q2", "p-alice", "first")
+    db.append_text_answer(conn, session, "q2", "p-alice", "first")
     db.approve_all_existing_free_text(conn, session, "q2")
     # New answer arrives
-    db.insert_response(conn, session, "q2", "p-bob", "second")
+    db.append_text_answer(conn, session, "q2", "p-bob", "second")
     # Second press picks up the new one without duplicating the first.
     n = db.approve_all_existing_free_text(conn, session, "q2")
     assert n == 2
 
 
 def test_approve_all_only_affects_target_question(conn, session):
-    db.insert_response(conn, session, "q1", "p-alice", "A")
-    db.insert_response(conn, session, "q2", "p-alice", "free text")
+    db.record_unique_answer(conn, session, "q1", "p-alice", "A")
+    db.append_text_answer(conn, session, "q2", "p-alice", "free text")
     db.approve_all_existing_free_text(conn, session, "q2")
     # q1 (a multiple-choice question) should have no approval rows.
     assert db.list_approved_free_text(conn, session, "q1") == []
 
 
 def test_approve_and_unapprove_free_text(conn, session):
-    db.insert_response(conn, session, "q2", "p-alice", "first")
-    db.insert_response(conn, session, "q2", "p-bob", "second")
+    db.append_text_answer(conn, session, "q2", "p-alice", "first")
+    db.append_text_answer(conn, session, "q2", "p-bob", "second")
     rows = db.list_text_responses(conn, session, "q2")
     rid_alice = next(r["id"] for r in rows if r["participant_id"] == "p-alice")
 
@@ -335,7 +360,7 @@ def test_reopen_existing_database_preserves_state(tmp_path):
     db.init_schema(c1)
     db.create_session(c1, "blue-otter-1234", "Demo", make_qs(), "tok")
     db.set_active_question(c1, "blue-otter-1234", "q2")
-    db.insert_response(c1, "blue-otter-1234", "q1", "p-alice", "A")
+    db.record_unique_answer(c1, "blue-otter-1234", "q1", "p-alice", "A")
     c1.close()
     # Reopen: same session id, same admin token, same active question, same answers.
     c2 = db.connect(path)
@@ -343,7 +368,7 @@ def test_reopen_existing_database_preserves_state(tmp_path):
     assert s["id"] == "blue-otter-1234"
     assert s["admin_token"] == "tok"
     assert db.get_state(c2, "blue-otter-1234")["active_question_id"] == "q2"
-    assert db.get_response(c2, "blue-otter-1234", "q1", "p-alice") == "A"
+    assert db.get_unique_answer(c2, "blue-otter-1234", "q1", "p-alice") == "A"
     c2.close()
 
 

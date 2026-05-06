@@ -2,36 +2,59 @@
 {% block body_class %}participant{% endblock %}
 {% block content %}
 <h1>{{ title }}</h1>
-<div id="participant-app" data-phase="{{ phase }}" data-qid="{{ active_question.id if active_question else '' }}">
+<div id="participant-app"
+     data-phase="{{ phase }}"
+     data-qid="{{ active_question.id if active_question else '' }}"
+     data-prior-mc="{{ prior_mc_answer or '' }}">
   {% if phase == "ended" %}
-  <p class="big">Thanks, that's the last one.</p>
+    <p class="big">Thanks, that's the last one.</p>
   {% elif phase == "active" and active_question %}
-  <h2 class="prompt">{{ active_question.prompt }}</h2>
-  {% if active_question.type == "multiple_choice" %}
-  <form id="answer-form" method="post" action="/answer">
-    <input type="hidden" name="question_id" value="{{ active_question.id }}">
-    {% for opt in active_question.options %}
-    <label class="option">
-      <input type="radio" name="answer" value="{{ opt.id }}" {% if prior_answer==opt.id %}checked{% endif %} required>
-      <span>{{ opt.label }}</span>
-    </label>
-    {% endfor %}
-    <button type="submit">Submit</button>
-  </form>
+    <h2 class="prompt">{{ active_question.prompt }}</h2>
+    {% if active_question.type == "multiple_choice" %}
+      {# Issue #5: MC is one-shot. Once answered, show the locked summary
+         instead of the form so the participant cannot try to change it. #}
+      {% if prior_mc_answer %}
+        {# Jinja {% set %} inside {% for %} doesn't escape the loop scope --
+           use a namespace to capture the matched label. #}
+        {% set ns = namespace(label=none) %}
+        {% for opt in active_question.options %}
+          {% if opt.id == prior_mc_answer %}{% set ns.label = opt.label %}{% endif %}
+        {% endfor %}
+        <p class="submitted big">You answered: <strong>{{ ns.label or prior_mc_answer }}</strong></p>
+        <p class="muted">Your answer is locked.</p>
+      {% else %}
+        <form id="answer-form" method="post" action="/answer">
+          <input type="hidden" name="question_id" value="{{ active_question.id }}">
+          {% for opt in active_question.options %}
+            <label class="option">
+              <input type="radio" name="answer" value="{{ opt.id }}" required>
+              <span>{{ opt.label }}</span>
+            </label>
+          {% endfor %}
+          <button type="submit">Submit</button>
+        </form>
+      {% endif %}
+    {% else %}
+      {# Issue #6: free text accepts multiple submissions. Don't pre-fill the
+         textarea; show a hint after the first submit. #}
+      <form id="answer-form" method="post" action="/answer">
+        <input type="hidden" name="question_id" value="{{ active_question.id }}">
+        <textarea name="answer" rows="4" placeholder="Type your answer" required></textarea>
+        <button type="submit">Submit</button>
+      </form>
+      {% if participant_text_count and participant_text_count > 0 %}
+        <p class="submitted">
+          {% if participant_text_count == 1 %}
+            Your answer is recorded. You can submit another if you like.
+          {% else %}
+            {{ participant_text_count }} answers recorded. You can submit another if you like.
+          {% endif %}
+        </p>
+      {% endif %}
+    {% endif %}
   {% else %}
-  <form id="answer-form" method="post" action="/answer">
-    <input type="hidden" name="question_id" value="{{ active_question.id }}">
-    <textarea name="answer" rows="4" placeholder="Type your answer" required>{{ prior_answer or '' }}</textarea>
-    <button type="submit">Submit</button>
-  </form>
-  {% endif %}
-  {% if prior_answer %}
-  <p class="submitted">Your answer is recorded. </p>
-  {% endif %}
-  {% else %}
-  <p class="big">Waiting for presenter to start a question.</p>
+    <p class="big">Waiting for presenter to start a question.</p>
   {% endif %}
 </div>
 {% endblock %}
-{% block scripts %}
-<script src="/static/app.js" defer></script>{% endblock %}
+{% block scripts %}<script src="/static/app.js" defer></script>{% endblock %}

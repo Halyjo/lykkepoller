@@ -114,7 +114,7 @@ def setup_db(tmp_path: Path) -> Path:
     c = db.connect(p)
     db.init_schema(c)
     db.create_session(c, "blue-otter-1234", "Demo", make_qs(), "tok")
-    db.insert_response(c, "blue-otter-1234", "q1", "p-alice", "A")
+    db.record_unique_answer(c, "blue-otter-1234", "q1", "p-alice", "A")
     c.close()
     return p
 
@@ -140,7 +140,7 @@ def test_cli_migration_applies_with_yes(tmp_path: Path):
     assert [q["id"] for q in snap] == ["q1", "q2", "q3"]
     assert snap[0]["prompt"] == "Pick a fruit (revised)"
     # Existing responses are still tied to q1 / option A.
-    assert db.get_response(c, "blue-otter-1234", "q1", "p-alice") == "A"
+    assert db.get_unique_answer(c, "blue-otter-1234", "q1", "p-alice") == "A"
     c.close()
 
 

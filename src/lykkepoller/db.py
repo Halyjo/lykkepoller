@@ -3,6 +3,23 @@
 All SQL lives here. Routes and the CLI call functions from this module; they
 should never write SQL inline. Each table and each non-trivial query has a
 plain-English comment above it. One database file == one session.
+
+Two response tables, by design:
+
+  unique_responses  -- one row per (session, question, participant). Used
+                       for MC (and any future "one answer per person" type
+                       like ratings). The UNIQUE constraint plus
+                       INSERT ... ON CONFLICT DO NOTHING enforces the
+                       no-changing-answers rule from issue #5.
+
+  append_responses  -- append-only log. Used for free-text, where a
+                       participant may submit several answers in a row
+                       (issue #6). No UNIQUE constraint.
+
+Splitting into two tables keeps each query simple and small (no `WHERE
+question_type = ...` everywhere) and lets the row's *table* be the source
+of truth for "is this answer one-shot or append-only" rather than a
+column that could disagree with the question definition.
 """
 
 from __future__ import annotations
@@ -33,8 +50,14 @@ CREATE TABLE IF NOT EXISTS sessions (
 
 -- Tracks which question (if any) is currently active, whether the session
 -- has been ended, and the two presenter "reveal" toggles for /present:
---   reveal_free_text -- show approved free-text answers
---   reveal_correct   -- color the correct option(s) of the active MC question
+--   reveal_free_text -- "show audience-visible result details": for free-text
+--                       questions this means the approved-answers list; for MC
+--                       this means the bar chart with counts/percentages.
+--                       (The column name is historical -- it predates MC bars
+--                       being gated on the same flag.)
+--   reveal_correct   -- color the correct option(s) of the active MC
+--                       question. Implies bars are visible (otherwise the
+--                       coloring has nothing to land on).
 -- Drives the IDLE / QUESTION_ACTIVE / ENDED state machine.
 CREATE TABLE IF NOT EXISTS state (
     session_id TEXT PRIMARY KEY,
@@ -45,33 +68,31 @@ CREATE TABLE IF NOT EXISTS state (
     FOREIGN KEY (session_id) REFERENCES sessions(id)
 );
 
--- Two tables: one for unique responses (MCQ, ratings) and one for append only (free text)
--- Table 1:
--- One row per (session, question, participant). The UNIQUE constraint
--- enforces "one answer per participant per question" -- duplicate submits
--- replace the previous answer with INSERT ... ON CONFLICT DO NOTHING.
+-- One row per (session, question, participant). UNIQUE + INSERT ON
+-- CONFLICT DO NOTHING enforces "answer once, no changes" for MC questions
+-- (issue #5).
 CREATE TABLE IF NOT EXISTS unique_responses (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     session_id TEXT NOT NULL,
     question_id TEXT NOT NULL,
     participant_id TEXT NOT NULL,
-    question_type TEXT NOT NULL,
     answer TEXT NOT NULL,
     created_at TEXT NOT NULL,
     FOREIGN KEY (session_id) REFERENCES sessions(id),
     UNIQUE(session_id, question_id, participant_id)
 );
 
--- Table 2:
--- Every participant can freely append (session, question, participant). No unique constraint
+-- Append-only log of free-text answers. A participant can submit as many
+-- times as they want for the same question (issue #6); each submit is a
+-- new row with its own id, which is what approved_free_text references.
 CREATE TABLE IF NOT EXISTS append_responses (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     session_id TEXT NOT NULL,
     question_id TEXT NOT NULL,
     participant_id TEXT NOT NULL,
-    question_type TEXT NOT NULL,
     answer TEXT NOT NULL,
-    created_at TEXT NOT NULL
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (session_id) REFERENCES sessions(id)
 );
 
 -- Heartbeat table. Every participant poll updates last_seen_at via upsert.
@@ -264,101 +285,80 @@ def set_reveal_correct(conn: sqlite3.Connection, session_id: str, reveal: bool) 
 # --- responses ----------------------------------------------------------------
 
 
-def insert_response_once(
-    conn,
+def record_unique_answer(
+    conn: sqlite3.Connection,
     session_id: str,
     question_id: str,
     participant_id: str,
-    question_type: str,
     answer: str,
 ) -> bool:
-    """One answer per participant per question; resubmits do nothing.
+    """Used by MC. One answer per (session, question, participant); a second
+    submit is silently dropped (issue #5: no changing answers).
 
-    The ON CONFLICT clause matches the UNIQUE(session_id, question_id, participant_id)
-    constraint defined on `responses`.
-
-    Returns: True if submitted, False if attempted resubmition.
+    Returns True if this submit was accepted, False if the participant had
+    already answered.
     """
     cur = conn.execute(
         """
-        INSERT INTO unique_responses (
-            session_id,
-            question_id,
-            participant_id,
-            question_type,
-            answer, 
-            created_at
-        )
-        VALUES (?, ?, ?, ?, ?, ?)
-        ON CONFLICT(session_id, question_id, participant_id)
-        DO NOTHING
+        INSERT INTO unique_responses
+            (session_id, question_id, participant_id, answer, created_at)
+        VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(session_id, question_id, participant_id) DO NOTHING
         """,
-        (
-            session_id,
-            question_id,
-            participant_id,
-            question_type,
-            answer,
-            now_iso(),
-        ),
+        (session_id, question_id, participant_id, answer, now_iso()),
     )
     conn.commit()
-
     return cur.rowcount == 1
 
 
-def insert_append_response(
-    conn,
+def append_text_answer(
+    conn: sqlite3.Connection,
     session_id: str,
     question_id: str,
     participant_id: str,
-    question_type: str,
     answer: str,
 ) -> None:
-    """Append all submissions."""
+    """Used by free text. Each submit appends a new row -- a single
+    participant can keep submitting (issue #6, e.g. multi-question Q&A or
+    feedback streams)."""
     conn.execute(
         """
-        INSERT INTO append_responses (
-            session_id,
-            question_id,
-            participant_id,
-            question_type,
-            answer,
-            created_at
-        )
-        VALUES (?, ?, ?, ?, ?, ?)
+        INSERT INTO append_responses
+            (session_id, question_id, participant_id, answer, created_at)
+        VALUES (?, ?, ?, ?, ?)
         """,
-        (
-            session_id,
-            question_id,
-            participant_id,
-            question_type,
-            answer,
-            now_iso(),
-        ),
+        (session_id, question_id, participant_id, answer, now_iso()),
     )
     conn.commit()
 
 
-def get_response(
+def get_unique_answer(
     conn: sqlite3.Connection, session_id: str, question_id: str, participant_id: str
 ) -> str | None:
-    rows_from_unique_table = conn.execute(
+    """Return the participant's recorded MC answer, or None.
+
+    The participant page uses this to (a) pre-tick the radio they picked and
+    (b) hide the form so they cannot try to change it.
+    """
+    row = conn.execute(
         "SELECT answer FROM unique_responses "
         "WHERE session_id = ? AND question_id = ? AND participant_id = ?",
         (session_id, question_id, participant_id),
     ).fetchone()
-    rows_from_append_table = conn.execute(
-        "SELECT answer FROM append_responses "
+    return row["answer"] if row else None
+
+
+def participant_text_count(
+    conn: sqlite3.Connection, session_id: str, question_id: str, participant_id: str
+) -> int:
+    """How many free-text answers this participant has submitted for this
+    question. Drives the "Your answer is recorded -- submit another if you
+    like" hint on the participant page."""
+    return conn.execute(
+        "SELECT COUNT(*) FROM append_responses "
         "WHERE session_id = ? AND question_id = ? AND participant_id = ?",
         (session_id, question_id, participant_id),
-    ).fetchone()
-    if not rows_from_unique_table and not rows_from_append_table: ## no existing match
-        return None
-    elif rows_from_unique_table: ## unique match 
-        return rows_from_unique_table["answer"]
-    else: 
-        return rows_from_append_table[0] ## take the last
+    ).fetchone()[0]
 
 
 def list_text_responses(conn: sqlite3.Connection, session_id: str, question_id: str) -> list[dict]:
@@ -371,30 +371,36 @@ def list_text_responses(conn: sqlite3.Connection, session_id: str, question_id: 
 
 
 def list_all_responses(conn: sqlite3.Connection, session_id: str) -> list[dict]:
-    """Used by CSV export."""
-    rows_unique_responses = conn.execute(
-        "SELECT id, question_id, participant_id, answer, created_at FROM unique_responses "
-        "WHERE session_id = ? ORDER BY id ASC",
-        (session_id,),
+    """Used by CSV export. Returns the union of both tables ordered by
+    insertion. The caller (exports.py) figures out the question type from the
+    questions snapshot, so we don't tag rows with type here."""
+    rows = conn.execute(
+        """
+        SELECT id, question_id, participant_id, answer, created_at
+        FROM unique_responses WHERE session_id = ?
+        UNION ALL
+        SELECT id, question_id, participant_id, answer, created_at
+        FROM append_responses WHERE session_id = ?
+        ORDER BY created_at ASC, id ASC
+        """,
+        (session_id, session_id),
     ).fetchall()
-    rows_append_responses = conn.execute(
-        "SELECT id, question_id, participant_id, answer, created_at FROM append_responses "
-        "WHERE session_id = ? ORDER BY id ASC",
-        (session_id,),
-    ).fetchall()
-    return [dict(r) for r in rows_unique_responses + rows_append_responses]
+    return [dict(r) for r in rows]
 
 
 def count_responses(conn: sqlite3.Connection, session_id: str, question_id: str) -> int:
-    count_unique_responses = conn.execute(
+    """Total submissions for this question. For an MC question only
+    unique_responses contributes; for a free-text question only
+    append_responses does. Summing both is correct in either case."""
+    n_unique = conn.execute(
         "SELECT COUNT(*) FROM unique_responses WHERE session_id = ? AND question_id = ?",
         (session_id, question_id),
     ).fetchone()[0]
-    count_append_responses = conn.execute(
+    n_append = conn.execute(
         "SELECT COUNT(*) FROM append_responses WHERE session_id = ? AND question_id = ?",
         (session_id, question_id),
     ).fetchone()[0]
-    return count_unique_responses + count_append_responses
+    return n_unique + n_append
 
 
 def aggregate_choice_counts(
@@ -440,18 +446,23 @@ def count_connected(conn: sqlite3.Connection, session_id: str, window_seconds: i
 
 
 def count_answered(conn: sqlite3.Connection, session_id: str, question_id: str) -> int:
-    """Distinct participants who have answered the given question."""
-    count_unique_questions = conn.execute(
+    """Distinct participants who have answered the given question.
+
+    For MC the answer is in unique_responses; for free text, in
+    append_responses. We count distinct participants in each table separately
+    -- only one of them will be non-zero for any given question, so summing is
+    safe and simpler than dispatching on question type here."""
+    n_unique = conn.execute(
         "SELECT COUNT(DISTINCT participant_id) FROM unique_responses "
         "WHERE session_id = ? AND question_id = ?",
         (session_id, question_id),
     ).fetchone()[0]
-    count_append_questions = conn.execute(
+    n_append = conn.execute(
         "SELECT COUNT(DISTINCT participant_id) FROM append_responses "
         "WHERE session_id = ? AND question_id = ?",
         (session_id, question_id),
     ).fetchone()[0]
-    return count_unique_questions + count_append_questions
+    return n_unique + n_append
 
 
 # --- free-text moderation -----------------------------------------------------

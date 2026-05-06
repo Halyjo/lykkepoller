@@ -141,6 +141,25 @@ def create_app(*, db_path: Path) -> FastAPI:
             return base, "localhost"
         return base, "request"
 
+    def _participant_status(active_q, session_id, pid):
+        """Return (prior_mc_answer, free_text_submit_count) for the active
+        question. (None, 0) if there is no active question.
+
+        prior_mc_answer  -- string option_id or None. Drives both the
+                            participant page's "you answered: X" lock (issue #5)
+                            and pre-ticking the radio if rendered for some
+                            reason.
+        free_text_count  -- count of this participant's free-text submissions
+                            for the active question. >0 triggers the
+                            "answer recorded -- submit another if you like"
+                            hint (issue #6).
+        """
+        if active_q is None:
+            return None, 0
+        if active_q["type"] == "multiple_choice":
+            return db_module.get_unique_answer(conn, session_id, active_q["id"], pid), 0
+        return None, db_module.participant_text_count(conn, session_id, active_q["id"], pid)
+
     def compute_results(question: dict) -> dict:
         """Build the result summary dict used by both /admin and /present."""
         sid = app.state.session_id
@@ -198,11 +217,7 @@ def create_app(*, db_path: Path) -> FastAPI:
             if state["active_question_id"]
             else None
         )
-        prior = (
-            db_module.get_response(conn, sess["id"], state["active_question_id"], pid)
-            if state["active_question_id"]
-            else None
-        )
+        prior_mc, text_count = _participant_status(active_q, sess["id"], pid)
         resp = TEMPLATES.TemplateResponse(
             request,
             "participant.html",
@@ -210,7 +225,8 @@ def create_app(*, db_path: Path) -> FastAPI:
                 "title": sess["title"],
                 "phase": phase_of(state),
                 "active_question": active_q,
-                "prior_answer": prior,
+                "prior_mc_answer": prior_mc,
+                "participant_text_count": text_count,
             },
         )
         if is_new:
@@ -236,24 +252,16 @@ def create_app(*, db_path: Path) -> FastAPI:
                 if q["type"] == "multiple_choice":
                     valid = {o["id"] for o in q.get("options", [])}
                     if answer in valid:
-                        submitted = db_module.insert_response_once(
-                            conn, 
-                            sess["id"], 
-                            question_id, 
-                            pid,
-                            q["type"],
-                            answer,
+                        # Returns False if this participant already answered;
+                        # we silently drop the resubmit (issue #5).
+                        db_module.record_unique_answer(
+                            conn, sess["id"], question_id, pid, answer
                         )
                 else:
                     text = answer.strip()
                     if text:
-                        db_module.insert_append_response(
-                            conn, 
-                            sess["id"], 
-                            question_id, 
-                            pid,
-                            q["type"],
-                            text,
+                        db_module.append_text_answer(
+                            conn, sess["id"], question_id, pid, text
                         )
 
         resp = RedirectResponse("/join", status_code=303)
@@ -471,15 +479,12 @@ def create_app(*, db_path: Path) -> FastAPI:
             if state["active_question_id"]
             else None
         )
-        prior = (
-            db_module.get_response(conn, sess["id"], state["active_question_id"], pid)
-            if state["active_question_id"]
-            else None
-        )
+        prior_mc, text_count = _participant_status(active_q, sess["id"], pid)
         payload = {
             "phase": phase_of(state),
             "active_question": active_q,
-            "prior_answer": prior,
+            "prior_mc_answer": prior_mc,
+            "participant_text_count": text_count,
         }
         resp = JSONResponse(payload)
         if is_new:

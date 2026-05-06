@@ -21,9 +21,9 @@ def session_with_responses(tmp_path):
     c = db.connect(p)
     db.init_schema(c)
     db.create_session(c, "blue-otter-1234", "Demo", make_qs(), "tok")
-    db.insert_response(c, "blue-otter-1234", "q1", "p-alice", "A")
-    db.insert_response(c, "blue-otter-1234", "q1", "p-bob", "B")
-    db.insert_response(c, "blue-otter-1234", "q2", "p-alice", "because reasons")
+    db.record_unique_answer(c, "blue-otter-1234", "q1", "p-alice", "A")
+    db.record_unique_answer(c, "blue-otter-1234", "q1", "p-bob", "B")
+    db.append_text_answer(c, "blue-otter-1234", "q2", "p-alice", "because reasons")
     return c, db.get_session(c)
 
 
@@ -75,7 +75,7 @@ def test_csv_orphan_response_still_exported(tmp_path):
     c = db.connect(p)
     db.init_schema(c)
     db.create_session(c, "blue-otter-1234", "Demo", make_qs(), "tok")
-    db.insert_response(c, "blue-otter-1234", "q1", "p-alice", "A")
+    db.record_unique_answer(c, "blue-otter-1234", "q1", "p-alice", "A")
     # Replace snapshot so q1 is gone.
     db.replace_questions(c, "blue-otter-1234", [{"id": "qZ", "type": "free_text", "prompt": "?"}])
     csv_text = exports.csv_for_session(c, db.get_session(c))
