@@ -191,14 +191,14 @@ def test_init_schema_migrates_old_db(tmp_path):
 def test_insert_response_and_read_it_back(conn, session):
     db.insert_response(conn, session, "q1", "p-alice", "A")
     assert db.get_response(conn, session, "q1", "p-alice") == "A"
-    rows = db.list_responses(conn, session, "q1")
+    rows = db.list_text_responses(conn, session, "q1")
     assert len(rows) == 1 and rows[0]["answer"] == "A"
 
 
 def test_resubmit_replaces_previous_answer(conn, session):
     db.insert_response(conn, session, "q1", "p-alice", "A")
     db.insert_response(conn, session, "q1", "p-alice", "B")
-    rows = db.list_responses(conn, session, "q1")
+    rows = db.list_text_responses(conn, session, "q1")
     assert len(rows) == 1
     assert rows[0]["answer"] == "B"
 
@@ -307,7 +307,7 @@ def test_approve_all_only_affects_target_question(conn, session):
 def test_approve_and_unapprove_free_text(conn, session):
     db.insert_response(conn, session, "q2", "p-alice", "first")
     db.insert_response(conn, session, "q2", "p-bob", "second")
-    rows = db.list_responses(conn, session, "q2")
+    rows = db.list_text_responses(conn, session, "q2")
     rid_alice = next(r["id"] for r in rows if r["participant_id"] == "p-alice")
 
     assert db.list_approved_free_text(conn, session, "q2") == []

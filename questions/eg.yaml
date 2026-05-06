@@ -1,0 +1,17 @@
+title: Demo
+questions:
+  - id: q1
+    type: multiple_choice
+    prompt: "Which color is better"
+    options:
+      - id: A
+        label: "red"
+        is_correct: true
+      - id: B
+        label: "blue"
+        is_correct: true
+      - id: C
+        label: "yellow"
+  - id: q2
+    type: free_text
+    prompt: "What is your name?"

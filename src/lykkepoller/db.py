@@ -45,18 +45,33 @@ CREATE TABLE IF NOT EXISTS state (
     FOREIGN KEY (session_id) REFERENCES sessions(id)
 );
 
+-- Two tables: one for unique responses (MCQ, ratings) and one for append only (free text)
+-- Table 1:
 -- One row per (session, question, participant). The UNIQUE constraint
 -- enforces "one answer per participant per question" -- duplicate submits
--- replace the previous answer with INSERT ... ON CONFLICT DO UPDATE.
-CREATE TABLE IF NOT EXISTS responses (
+-- replace the previous answer with INSERT ... ON CONFLICT DO NOTHING.
+CREATE TABLE IF NOT EXISTS unique_responses (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     session_id TEXT NOT NULL,
     question_id TEXT NOT NULL,
     participant_id TEXT NOT NULL,
+    question_type TEXT NOT NULL,
     answer TEXT NOT NULL,
     created_at TEXT NOT NULL,
     FOREIGN KEY (session_id) REFERENCES sessions(id),
     UNIQUE(session_id, question_id, participant_id)
+);
+
+-- Table 2:
+-- Every participant can freely append (session, question, participant). No unique constraint
+CREATE TABLE IF NOT EXISTS append_responses (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id TEXT NOT NULL,
+    question_id TEXT NOT NULL,
+    participant_id TEXT NOT NULL,
+    question_type TEXT NOT NULL,
+    answer TEXT NOT NULL,
+    created_at TEXT NOT NULL
 );
 
 -- Heartbeat table. Every participant poll updates last_seen_at via upsert.
@@ -77,7 +92,7 @@ CREATE TABLE IF NOT EXISTS approved_free_text (
     question_id TEXT NOT NULL,
     response_id INTEGER NOT NULL,
     PRIMARY KEY (session_id, question_id, response_id),
-    FOREIGN KEY (response_id) REFERENCES responses(id)
+    FOREIGN KEY (response_id) REFERENCES append_responses(id)
 );
 """
 
@@ -249,27 +264,78 @@ def set_reveal_correct(conn: sqlite3.Connection, session_id: str, reveal: bool) 
 # --- responses ----------------------------------------------------------------
 
 
-def insert_response(
-    conn: sqlite3.Connection,
+def insert_response_once(
+    conn,
     session_id: str,
     question_id: str,
     participant_id: str,
+    question_type: str,
     answer: str,
-) -> None:
-    """One answer per participant per question; resubmits replace.
+) -> bool:
+    """One answer per participant per question; resubmits do nothing.
 
     The ON CONFLICT clause matches the UNIQUE(session_id, question_id, participant_id)
     constraint defined on `responses`.
+
+    Returns: True if submitted, False if attempted resubmition.
     """
+    cur = conn.execute(
+        """
+        INSERT INTO unique_responses (
+            session_id,
+            question_id,
+            participant_id,
+            question_type,
+            answer, 
+            created_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?)
+        ON CONFLICT(session_id, question_id, participant_id)
+        DO NOTHING
+        """,
+        (
+            session_id,
+            question_id,
+            participant_id,
+            question_type,
+            answer,
+            now_iso(),
+        ),
+    )
+    conn.commit()
+
+    return cur.rowcount == 1
+
+
+def insert_append_response(
+    conn,
+    session_id: str,
+    question_id: str,
+    participant_id: str,
+    question_type: str,
+    answer: str,
+) -> None:
+    """Append all submissions."""
     conn.execute(
         """
-        INSERT INTO responses (session_id, question_id, participant_id, answer, created_at)
-        VALUES (?, ?, ?, ?, ?)
-        ON CONFLICT(session_id, question_id, participant_id) DO UPDATE SET
-            answer = excluded.answer,
-            created_at = excluded.created_at
+        INSERT INTO append_responses (
+            session_id,
+            question_id,
+            participant_id,
+            question_type,
+            answer,
+            created_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?)
         """,
-        (session_id, question_id, participant_id, answer, now_iso()),
+        (
+            session_id,
+            question_id,
+            participant_id,
+            question_type,
+            answer,
+            now_iso(),
+        ),
     )
     conn.commit()
 
@@ -277,17 +343,27 @@ def insert_response(
 def get_response(
     conn: sqlite3.Connection, session_id: str, question_id: str, participant_id: str
 ) -> str | None:
-    row = conn.execute(
-        "SELECT answer FROM responses "
+    rows_from_unique_table = conn.execute(
+        "SELECT answer FROM unique_responses "
         "WHERE session_id = ? AND question_id = ? AND participant_id = ?",
         (session_id, question_id, participant_id),
     ).fetchone()
-    return row["answer"] if row else None
+    rows_from_append_table = conn.execute(
+        "SELECT answer FROM append_responses "
+        "WHERE session_id = ? AND question_id = ? AND participant_id = ?",
+        (session_id, question_id, participant_id),
+    ).fetchone()
+    if not rows_from_unique_table and not rows_from_append_table: ## no existing match
+        return None
+    elif rows_from_unique_table: ## unique match 
+        return rows_from_unique_table["answer"]
+    else: 
+        return rows_from_append_table[0] ## take the last
 
 
-def list_responses(conn: sqlite3.Connection, session_id: str, question_id: str) -> list[dict]:
+def list_text_responses(conn: sqlite3.Connection, session_id: str, question_id: str) -> list[dict]:
     rows = conn.execute(
-        "SELECT id, participant_id, answer, created_at FROM responses "
+        "SELECT id, participant_id, answer, created_at FROM append_responses "
         "WHERE session_id = ? AND question_id = ? ORDER BY id ASC",
         (session_id, question_id),
     ).fetchall()
@@ -296,19 +372,29 @@ def list_responses(conn: sqlite3.Connection, session_id: str, question_id: str) 
 
 def list_all_responses(conn: sqlite3.Connection, session_id: str) -> list[dict]:
     """Used by CSV export."""
-    rows = conn.execute(
-        "SELECT id, question_id, participant_id, answer, created_at FROM responses "
+    rows_unique_responses = conn.execute(
+        "SELECT id, question_id, participant_id, answer, created_at FROM unique_responses "
         "WHERE session_id = ? ORDER BY id ASC",
         (session_id,),
     ).fetchall()
-    return [dict(r) for r in rows]
+    rows_append_responses = conn.execute(
+        "SELECT id, question_id, participant_id, answer, created_at FROM append_responses "
+        "WHERE session_id = ? ORDER BY id ASC",
+        (session_id,),
+    ).fetchall()
+    return [dict(r) for r in rows_unique_responses + rows_append_responses]
 
 
 def count_responses(conn: sqlite3.Connection, session_id: str, question_id: str) -> int:
-    return conn.execute(
-        "SELECT COUNT(*) FROM responses WHERE session_id = ? AND question_id = ?",
+    count_unique_responses = conn.execute(
+        "SELECT COUNT(*) FROM unique_responses WHERE session_id = ? AND question_id = ?",
         (session_id, question_id),
     ).fetchone()[0]
+    count_append_responses = conn.execute(
+        "SELECT COUNT(*) FROM append_responses WHERE session_id = ? AND question_id = ?",
+        (session_id, question_id),
+    ).fetchone()[0]
+    return count_unique_responses + count_append_responses
 
 
 def aggregate_choice_counts(
@@ -316,7 +402,7 @@ def aggregate_choice_counts(
 ) -> dict[str, int]:
     """Return {option_id: count}. Caller fills in zeros for options with no votes."""
     rows = conn.execute(
-        "SELECT answer, COUNT(*) AS n FROM responses "
+        "SELECT answer, COUNT(*) AS n FROM unique_responses "
         "WHERE session_id = ? AND question_id = ? GROUP BY answer",
         (session_id, question_id),
     ).fetchall()
@@ -355,11 +441,17 @@ def count_connected(conn: sqlite3.Connection, session_id: str, window_seconds: i
 
 def count_answered(conn: sqlite3.Connection, session_id: str, question_id: str) -> int:
     """Distinct participants who have answered the given question."""
-    return conn.execute(
-        "SELECT COUNT(DISTINCT participant_id) FROM responses "
+    count_unique_questions = conn.execute(
+        "SELECT COUNT(DISTINCT participant_id) FROM unique_responses "
         "WHERE session_id = ? AND question_id = ?",
         (session_id, question_id),
     ).fetchone()[0]
+    count_append_questions = conn.execute(
+        "SELECT COUNT(DISTINCT participant_id) FROM append_responses "
+        "WHERE session_id = ? AND question_id = ?",
+        (session_id, question_id),
+    ).fetchone()[0]
+    return count_unique_questions + count_append_questions
 
 
 # --- free-text moderation -----------------------------------------------------
@@ -389,7 +481,7 @@ def approve_all_existing_free_text(
     conn.execute(
         """
         INSERT OR IGNORE INTO approved_free_text (session_id, question_id, response_id)
-        SELECT ?, ?, id FROM responses
+        SELECT ?, ?, id FROM append_responses
         WHERE session_id = ? AND question_id = ?
         """,
         (session_id, question_id, session_id, question_id),
@@ -431,7 +523,7 @@ def list_approved_free_text(
         """
         SELECT r.id, r.answer, r.created_at
         FROM approved_free_text a
-        JOIN responses r ON r.id = a.response_id
+        JOIN append_responses r ON r.id = a.response_id
         WHERE a.session_id = ? AND a.question_id = ?
         ORDER BY r.id ASC
         """,

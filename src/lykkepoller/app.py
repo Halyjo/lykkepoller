@@ -165,21 +165,22 @@ def create_app(*, db_path: Path) -> FastAPI:
                 "total": total,
                 "any_correct": any_correct,
             }
-        rows = db_module.list_responses(conn, sid, qid)
-        approved_ids = {a["id"] for a in db_module.list_approved_free_text(conn, sid, qid)}
-        answers = [
-            {"id": r["id"], "answer": r["answer"], "approved": r["id"] in approved_ids}
-            for r in rows
-        ]
-        # Note: keys named "items"/"keys"/"values" collide with dict builtin
-        # methods under Jinja2's attribute access (`res.items`), so we use
-        # "answers" / "approved_answers" instead.
-        return {
-            "type": "free_text",
-            "answers": answers,
-            "approved_answers": [a for a in answers if a["approved"]],
-            "total": len(answers),
-        }
+        else:
+            rows = db_module.list_text_responses(conn, sid, qid)
+            approved_ids = {a["id"] for a in db_module.list_approved_free_text(conn, sid, qid)}
+            answers = [
+                {"id": r["id"], "answer": r["answer"], "approved": r["id"] in approved_ids}
+                for r in rows
+            ]
+            # Note: keys named "items"/"keys"/"values" collide with dict builtin
+            # methods under Jinja2's attribute access (`res.items`), so we use
+            # "answers" / "approved_answers" instead.
+            return {
+                "type": "free_text",
+                "answers": answers,
+                "approved_answers": [a for a in answers if a["approved"]],
+                "total": len(answers),
+            }
 
     # --- public routes --------------------------------------------------------
 
@@ -235,11 +236,25 @@ def create_app(*, db_path: Path) -> FastAPI:
                 if q["type"] == "multiple_choice":
                     valid = {o["id"] for o in q.get("options", [])}
                     if answer in valid:
-                        db_module.insert_response(conn, sess["id"], question_id, pid, answer)
+                        submitted = db_module.insert_response_once(
+                            conn, 
+                            sess["id"], 
+                            question_id, 
+                            pid,
+                            q["type"],
+                            answer,
+                        )
                 else:
                     text = answer.strip()
                     if text:
-                        db_module.insert_response(conn, sess["id"], question_id, pid, text)
+                        db_module.insert_append_response(
+                            conn, 
+                            sess["id"], 
+                            question_id, 
+                            pid,
+                            q["type"],
+                            text,
+                        )
 
         resp = RedirectResponse("/join", status_code=303)
         if is_new:

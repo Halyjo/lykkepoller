@@ -240,7 +240,7 @@ def test_admin_free_text_approve_toggle(app_client):
     from lykkepoller import db as dbm
 
     c = dbm.connect(app_client.app.state.db_path)
-    rows = dbm.list_responses(c, "blue-otter-1234", "q2")
+    rows = dbm.list_text_responses(c, "blue-otter-1234", "q2")
     rid = next(r2["id"] for r2 in rows if r2["answer"] == "first answer")
     c.close()
     app_client.post("/admin/approve", data={"qid": "q2", "rid": rid, "approved": "1"})
@@ -275,7 +275,7 @@ def test_present_shows_only_approved_when_revealed(app_client):
     from lykkepoller import db as dbm
 
     c = dbm.connect(app_client.app.state.db_path)
-    rows = dbm.list_responses(c, "blue-otter-1234", "q2")
+    rows = dbm.list_text_responses(c, "blue-otter-1234", "q2")
     rid_ok = next(r["id"] for r in rows if r["answer"] == "ok answer")
     c.close()
     app_client.post("/admin/approve", data={"qid": "q2", "rid": rid_ok, "approved": "1"})
