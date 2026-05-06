@@ -205,10 +205,16 @@ def create_app(*, db_path: Path) -> FastAPI:
 
     @app.get("/", include_in_schema=False)
     async def root():
-        return RedirectResponse("/join")
+        return RedirectResponse(f"/join/{app.state.session_id}")
 
-    @app.get("/join", response_class=HTMLResponse)
-    async def join(request: Request):
+    @app.get("/join", include_in_schema=False)
+    async def join_compat():
+        return RedirectResponse(f"/join/{app.state.session_id}", status_code=303)
+
+    @app.get("/join/{session_id}", response_class=HTMLResponse)
+    async def join(request: Request, session_id: str):
+        if session_id != app.state.session_id:
+            raise HTTPException(status_code=404)
         pid, is_new = ensure_participant_id(request)
         sess = current_session()
         state = current_state()
@@ -227,18 +233,22 @@ def create_app(*, db_path: Path) -> FastAPI:
                 "active_question": active_q,
                 "prior_mc_answer": prior_mc,
                 "participant_text_count": text_count,
+                "session_id": sess["id"],
             },
         )
         if is_new:
             set_participant_cookie(resp, pid)
         return resp
 
-    @app.post("/answer")
+    @app.post("/answer/{session_id}")
     async def answer_submit(
         request: Request,
+        session_id: str,
         question_id: str = Form(...),
         answer: str = Form(...),
     ):
+        if session_id != app.state.session_id:
+            raise HTTPException(status_code=404)
         pid, is_new = ensure_participant_id(request)
         sess = current_session()
         state = current_state()
@@ -264,7 +274,7 @@ def create_app(*, db_path: Path) -> FastAPI:
                             conn, sess["id"], question_id, pid, text
                         )
 
-        resp = RedirectResponse("/join", status_code=303)
+        resp = RedirectResponse(f"/join/{session_id}", status_code=303)
         if is_new:
             set_participant_cookie(resp, pid)
         return resp
@@ -280,7 +290,7 @@ def create_app(*, db_path: Path) -> FastAPI:
         )
         active_results = compute_results(active_q) if active_q else None
         base, _ = compute_base_url(request)
-        join_url = base + "/join"
+        join_url = base + f"/join/{sess['id']}"
         qr_url = base + "/qr.png"
         return TEMPLATES.TemplateResponse(
             request,
@@ -321,7 +331,7 @@ def create_app(*, db_path: Path) -> FastAPI:
         sess = current_session()
         state = current_state()
         base, base_src = compute_base_url(request)
-        join_url = base + "/join"
+        join_url = base + f"/join/{sess['id']}"
         results = {q["id"]: compute_results(q) for q in sess["questions"]}
         active_id = state["active_question_id"]
         return TEMPLATES.TemplateResponse(
@@ -459,14 +469,16 @@ def create_app(*, db_path: Path) -> FastAPI:
         # picks up the tunnel URL automatically (via X-Forwarded-Host); in pure
         # local dev it falls back to http://127.0.0.1:port/join.
         base, _ = compute_base_url(request)
-        png = qr_mod.png_bytes(base + "/join")
-        qr_mod.png_local(base + "/join", path="QR.png")
+        png = qr_mod.png_bytes(base + f"/join/{app.state.session_id}")
+        qr_mod.png_local(base + f"/join/{app.state.session_id}", path="QR.png")
         return Response(content=png, media_type="image/png")
 
     # --- live polling JSON -----------------------------------------------------
 
-    @app.get("/api/participant/state")
-    async def api_participant_state(request: Request):
+    @app.get("/api/participant/state/{session_id}")
+    async def api_participant_state(request: Request, session_id: str):
+        if session_id != app.state.session_id:
+            raise HTTPException(status_code=404)
         # The participant page polls this endpoint every ~1.5s. It doubles as
         # the heartbeat -- every poll updates participants.last_seen_at, which
         # drives the "connected" count on /admin and /present.

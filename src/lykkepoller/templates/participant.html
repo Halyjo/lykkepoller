@@ -5,7 +5,8 @@
 <div id="participant-app"
      data-phase="{{ phase }}"
      data-qid="{{ active_question.id if active_question else '' }}"
-     data-prior-mc="{{ prior_mc_answer or '' }}">
+     data-prior-mc="{{ prior_mc_answer or '' }}"
+     data-session-id="{{ session_id }}">
   {% if phase == "ended" %}
     <p class="big">Thanks, that's the last one.</p>
   {% elif phase == "active" and active_question %}
@@ -23,7 +24,7 @@
         <p class="submitted big">You answered: <strong>{{ ns.label or prior_mc_answer }}</strong></p>
         <p class="muted">Your answer is locked.</p>
       {% else %}
-        <form id="answer-form" method="post" action="/answer">
+        <form id="answer-form" method="post" action="/answer/{{ session_id }}">
           <input type="hidden" name="question_id" value="{{ active_question.id }}">
           {% for opt in active_question.options %}
             <label class="option">
@@ -37,7 +38,7 @@
     {% else %}
       {# Issue #6: free text accepts multiple submissions. Don't pre-fill the
          textarea; show a hint after the first submit. #}
-      <form id="answer-form" method="post" action="/answer">
+      <form id="answer-form" method="post" action="/answer/{{ session_id }}">
         <input type="hidden" name="question_id" value="{{ active_question.id }}">
         <textarea name="answer" rows="4" placeholder="Type your answer" required></textarea>
         <button type="submit">Submit</button>

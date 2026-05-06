@@ -80,10 +80,11 @@ async function fetchJson(url) {
 // --- participant ------------------------------------------------------------
 
 async function pollParticipant() {
-  const data = await fetchJson("/api/participant/state");
-  if (!data) return;
   const root = document.getElementById("participant-app");
   if (!root) return;
+  const sessionId = root.dataset.sessionId;
+  const data = await fetchJson("/api/participant/state/" + sessionId);
+  if (!data) return;
 
   const currentPhase = root.dataset.phase || "";
   const currentQid = root.dataset.qid || "";
