@@ -48,6 +48,35 @@ Database:      data/blue-otter-4281.sqlite
 Open the admin URL on your laptop. Show `/present` on the projector. Open
 `/join` on a phone (use a tunnel URL, see below).
 
+## Question file format
+
+A session is driven by a single YAML file. The whole shape:
+
+- **Root** — a mapping with two keys.
+  - `title` *(string, required, non-empty)* — shown on every page.
+  - `questions` *(list, required, non-empty)* — the ordered question set.
+- **Each question** — a mapping with these keys:
+  - `id` *(string, required, unique within the file)* — stable identifier;
+    do not change it after a session has been created (existing responses
+    are stored against this id).
+  - `type` *(string, required)* — one of `multiple_choice`, `free_text`,
+    `rating_scale`.
+  - `prompt` *(string, required)* — what the audience sees.
+- **`multiple_choice` only:**
+  - `options` *(list, required, non-empty)* — each option is a mapping with
+    `id` *(string, unique within the question)* and `label` *(string)*. An
+    optional `is_correct: true` flags one or more options as the correct
+    answer (revealed by the `C` shortcut on `/admin`).
+- **`rating_scale` only:**
+  - `steps` *(integer, required, 2..11)* — number of buttons on the scale.
+  - `low_label` and `high_label` *(strings, required, non-empty)* — anchor
+    text shown at the ends of the scale; intermediate steps are unlabeled.
+- **`free_text`** has no extra fields.
+
+Validation is light by design: a typo causing a clear runtime error is
+fine. The full validator lives in `src/lykkepoller/questions.py` if you
+want to read the rules verbatim.
+
 ## Making the questions
 
 Write a yaml-file on the following format and link to it in the run command as shown above.
