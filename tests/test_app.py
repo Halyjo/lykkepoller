@@ -207,7 +207,7 @@ def test_answer_free_text_records_response(app_client):
     r = app_client.get("/join")
     # Issue #6: the textarea is NOT pre-filled (so the participant can write
     # a new answer easily), but a hint confirms the submission landed.
-    assert "Your answer is recorded" in r.text
+    assert "Your answer is registered" in r.text
     # The textarea should be empty (no value attribute / no inner text).
     assert ">because</textarea>" not in r.text
 
@@ -224,7 +224,7 @@ def test_answer_free_text_allows_multiple_submits(app_client):
     assert "second" in r.text
     # Participant page hint reflects the count.
     r = app_client.get("/join")
-    assert "2 answers recorded" in r.text
+    assert "2 answers registered" in r.text
 
 
 def test_answer_invalid_mc_option_ignored(app_client):
