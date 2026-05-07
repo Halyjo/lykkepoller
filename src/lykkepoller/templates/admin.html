@@ -91,6 +91,17 @@
               {% endfor %}
             {% endif %}
             <p class="muted">{{ res.total }} response{{ '' if res.total == 1 else 's' }}</p>
+          {% elif res.type == "rating_scale" %}
+            {% if res.total %}
+              {% for b in res.buckets %}
+                <div class="bar">
+                  <div class="bar-label">{{ b.step }}{% if b.step == 1 %} <span class="muted">({{ res.low_label }})</span>{% elif b.step == res.steps %} <span class="muted">({{ res.high_label }})</span>{% endif %}</div>
+                  <div class="bar-fill" style="width: {{ b.pct }}%"></div>
+                  <div class="bar-count">{{ b.count }} · {{ b.pct }}%</div>
+                </div>
+              {% endfor %}
+            {% endif %}
+            <p class="muted">{{ res.total }} response{{ '' if res.total == 1 else 's' }}{% if res.average is not none %} · avg {{ res.average }}{% endif %}</p>
           {% else %}
             <p class="muted">{{ res.total }} response{{ '' if res.total == 1 else 's' }}</p>
             {% if res.answers %}

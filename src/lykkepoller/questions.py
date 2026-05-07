@@ -37,11 +37,14 @@ def validate(data) -> None:
             raise ValueError(f"duplicate question id: {qid!r}")
         seen_qids.add(qid)
         qtype = q["type"]
-        if qtype not in ("multiple_choice", "free_text"):
+        if qtype not in ("multiple_choice", "free_text", "rating_scale"):
             raise ValueError(
-                f"unknown question type {qtype!r} (use 'multiple_choice' or 'free_text')"
+                f"unknown question type {qtype!r} "
+                "(use 'multiple_choice', 'free_text', or 'rating_scale')"
             )
-        if qtype == "multiple_choice":
+        if qtype == "rating_scale":
+            _validate_rating_scale(q)
+        elif qtype == "multiple_choice":
             options = q.get("options")
             if not isinstance(options, list) or not options:
                 raise ValueError(f"multiple_choice question {qid!r} needs non-empty options")
@@ -58,6 +61,27 @@ def validate(data) -> None:
                 seen_oids.add(oid)
                 if "is_correct" in o and not isinstance(o["is_correct"], bool):
                     raise ValueError(f"option {oid!r} in {qid!r}: is_correct must be a boolean")
+
+
+def _validate_rating_scale(q: dict) -> None:
+    """Rating-scale shape: integer steps (>=2) plus two end labels.
+
+    Like MC, one answer per participant. The answer is the chosen step as a
+    string ("1".."steps"). End labels anchor the scale on the participant
+    page; the steps in between are unlabeled buttons.
+    """
+    qid = q["id"]
+    steps = q.get("steps")
+    if not isinstance(steps, int) or isinstance(steps, bool) or steps < 2:
+        raise ValueError(f"rating_scale {qid!r}: steps must be an integer >= 2")
+    if steps > 11:
+        raise ValueError(f"rating_scale {qid!r}: steps must be <= 11 (got {steps})")
+    for key in ("low_label", "high_label"):
+        v = q.get(key)
+        if not isinstance(v, str) or not v.strip():
+            raise ValueError(
+                f"rating_scale {qid!r}: {key!r} is required and must be a non-empty string"
+            )
 
 
 def find_question(qs: list[dict], qid: str) -> dict | None:

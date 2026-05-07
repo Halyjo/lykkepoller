@@ -1,0 +1,42 @@
+title: "Demo polling session"
+
+questions:
+  - id: q1
+    type: multiple_choice
+    prompt: "Where is the center of the universe?"
+    # `is_correct: true` is optional. When set, the presenter can press C
+    # (or click "Show correct" on /admin) to highlight the right answer in
+    # green and dim the others. Multiple options can be marked correct.
+    # If no option has is_correct, the toggle does nothing for this question.
+    options:
+      - id: A
+        label: "The sun"
+      - id: B
+        label: "A black hole"
+      - id: C
+        is_correct: true
+        label: "Your retina"
+
+  - id: q2
+    type: free_text
+    prompt: "Where do you live?"
+
+  - id: q3
+    type: multiple_choice
+    prompt: "Pick a color (no correct answer here)"
+    options:
+      - id: red
+        label: "Red"
+      - id: blue
+        label: "Blue"
+      - id: green
+        label: "Green"
+
+  - id: q4
+    type: rating_scale
+    prompt: "How well did you follow this section?"
+    # `steps` is the number of buttons (must be 2..11). The audience picks one
+    # number; only the two ends are labelled (low_label / high_label).
+    steps: 5
+    low_label: "Lost"
+    high_label: "Got it"

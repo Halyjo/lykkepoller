@@ -51,6 +51,28 @@ body.participant button[type="submit"] {
   background: var(--accent); color: white; border: none; border-radius: 8px;
   margin-top: 1rem;
 }
+body.participant .rating-form { margin-top: 1rem; }
+body.participant .rating-ends {
+  display: flex; justify-content: space-between;
+  font-size: 0.9rem; color: var(--muted); margin-bottom: 0.4rem;
+}
+body.participant .rating-steps {
+  display: flex; gap: 0.4rem; flex-wrap: wrap;
+}
+body.participant .rating-step {
+  flex: 1 0 2.5rem;
+  text-align: center;
+  padding: 0.9rem 0.4rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: white;
+  cursor: pointer;
+  font-size: 1.1rem;
+}
+body.participant .rating-step input { display: none; }
+body.participant .rating-step:has(input:checked) {
+  background: var(--accent); color: white; border-color: var(--accent);
+}
 body.participant .submitted {
   margin-top: 1rem; padding: 0.5rem 0.75rem;
   background: #e8f5e9; border-radius: 6px; font-size: 0.95rem;

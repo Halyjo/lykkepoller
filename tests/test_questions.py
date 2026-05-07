@@ -88,6 +88,49 @@ def test_validate_is_correct_must_be_bool():
         questions.validate(data)
 
 
+def _ok_rating():
+    return {
+        "id": "qr",
+        "type": "rating_scale",
+        "prompt": "How was it?",
+        "steps": 5,
+        "low_label": "Bad",
+        "high_label": "Good",
+    }
+
+
+def test_validate_rating_scale_ok():
+    questions.validate({"title": "T", "questions": [_ok_rating()]})
+
+
+def test_validate_rating_scale_requires_steps_int():
+    q = _ok_rating()
+    q["steps"] = "5"
+    with pytest.raises(ValueError, match="steps must be an integer"):
+        questions.validate({"title": "T", "questions": [q]})
+
+
+def test_validate_rating_scale_rejects_too_few_steps():
+    q = _ok_rating()
+    q["steps"] = 1
+    with pytest.raises(ValueError, match="steps must be an integer >= 2"):
+        questions.validate({"title": "T", "questions": [q]})
+
+
+def test_validate_rating_scale_rejects_too_many_steps():
+    q = _ok_rating()
+    q["steps"] = 12
+    with pytest.raises(ValueError, match="steps must be <= 11"):
+        questions.validate({"title": "T", "questions": [q]})
+
+
+def test_validate_rating_scale_requires_end_labels():
+    q = _ok_rating()
+    q["low_label"] = ""
+    with pytest.raises(ValueError, match="low_label"):
+        questions.validate({"title": "T", "questions": [q]})
+
+
 def test_load_yaml_file(tmp_path):
     f = tmp_path / "q.yaml"
     f.write_text('title: "Hi"\nquestions:\n  - id: q1\n    type: free_text\n    prompt: "Why?"\n')

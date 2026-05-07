@@ -27,7 +27,24 @@ def make_qs():
             "prompt": "Color",
             "options": [{"id": "r", "label": "red"}, {"id": "b", "label": "blue"}],
         },
+        {
+            "id": "qr",
+            "type": "rating_scale",
+            "prompt": "How was it?",
+            "steps": 5,
+            "low_label": "Bad",
+            "high_label": "Good",
+        },
     ]
+
+
+SID = "blue-otter-1234"
+
+
+def submit(client, qid, answer, participant_cookie=None):
+    if participant_cookie:
+        client.cookies.set("participant_id", participant_cookie)
+    return client.post(f"/answer/{SID}", data={"question_id": qid, "answer": answer})
 
 
 @pytest.fixture
@@ -577,3 +594,89 @@ def test_session_records_source_yaml_filename(app_client, tmp_path):
     s = dbm.get_session(c)
     assert "source_yaml_filename" in s
     c.close()
+
+
+# --- rating_scale (issue #9) -------------------------------------------------
+
+
+def test_rating_scale_renders_buttons_on_join(app_client):
+    admin(app_client)
+    app_client.post("/admin/activate", data={"qid": "qr"})
+    r = app_client.get(f"/join/{SID}")
+    assert r.status_code == 200
+    assert "How was it?" in r.text
+    # End labels are anchored on the form
+    assert "Bad" in r.text
+    assert "Good" in r.text
+    # 5 step buttons (values 1..5)
+    for n in range(1, 6):
+        assert f'value="{n}"' in r.text
+
+
+def test_rating_scale_records_response(app_client):
+    admin(app_client)
+    app_client.post("/admin/activate", data={"qid": "qr"})
+    r = submit(app_client, "qr", "4", "p-alice")
+    assert r.status_code == 303
+    state = app_client.get("/api/admin/state").json()
+    res = state["results"]["qr"]
+    assert res["type"] == "rating_scale"
+    assert res["total"] == 1
+    by_step = {b["step"]: b for b in res["buckets"]}
+    assert by_step[4]["count"] == 1
+    assert res["average"] == 4.0
+
+
+def test_rating_scale_is_one_shot_lock(app_client):
+    """Like MC, a second submit is silently dropped (issue #5 semantics)."""
+    admin(app_client)
+    app_client.post("/admin/activate", data={"qid": "qr"})
+    submit(app_client, "qr", "2", "p-alice")
+    submit(app_client, "qr", "5", "p-alice")
+    res = app_client.get("/api/admin/state").json()["results"]["qr"]
+    by_step = {b["step"]: b["count"] for b in res["buckets"]}
+    assert by_step[2] == 1
+    assert by_step[5] == 0
+    # Participant page should now show the locked summary, not the form.
+    app_client.cookies.set("participant_id", "p-alice")
+    page = app_client.get(f"/join/{SID}").text
+    assert "Your answer is locked" in page
+    assert "You answered" in page
+
+
+def test_rating_scale_rejects_out_of_range(app_client):
+    admin(app_client)
+    app_client.post("/admin/activate", data={"qid": "qr"})
+    submit(app_client, "qr", "0", "p-alice")
+    submit(app_client, "qr", "6", "p-bob")
+    submit(app_client, "qr", "junk", "p-carol")
+    res = app_client.get("/api/admin/state").json()["results"]["qr"]
+    assert res["total"] == 0
+
+
+def test_present_rating_hidden_until_revealed(app_client):
+    admin(app_client)
+    app_client.post("/admin/activate", data={"qid": "qr"})
+    submit(app_client, "qr", "3", "p-alice")
+    submit(app_client, "qr", "5", "p-bob")
+    page = app_client.get("/present").text
+    assert "2 responses received" in page
+    # No histogram bar markup until reveal toggle is on.
+    assert 'class="bar"' not in page
+    # average not leaked either
+    assert "avg" not in page
+    app_client.post("/admin/reveal", data={"on": "1"})
+    page = app_client.get("/present").text
+    assert "Bad" in page  # end label
+    assert "Good" in page
+    assert "avg 4" in page
+
+
+def test_rating_scale_average_computed(app_client):
+    admin(app_client)
+    app_client.post("/admin/activate", data={"qid": "qr"})
+    submit(app_client, "qr", "1", "p-a")
+    submit(app_client, "qr", "5", "p-b")
+    submit(app_client, "qr", "3", "p-c")
+    res = app_client.get("/api/admin/state").json()["results"]["qr"]
+    assert res["average"] == 3.0

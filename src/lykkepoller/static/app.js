@@ -167,6 +167,8 @@ async function pollAdmin() {
       const isActive = qid === data.active_question_id;
       const showCorrect = data.reveal_correct && isActive && r.any_correct;
       c.innerHTML = renderMCBars(r, showCorrect);
+    } else if (r.type === "rating_scale") {
+      c.innerHTML = renderRatingBars(r);
     } else {
       c.innerHTML = renderFreeTextList(r, qid);
     }
@@ -187,6 +189,26 @@ function renderMCBars(r, showCorrect) {
     }
   }
   html += `<p class="muted">${r.total} response${r.total === 1 ? "" : "s"}</p>`;
+  return html;
+}
+
+function renderRatingBars(r) {
+  let html = "";
+  if (r.total) {
+    for (const b of r.buckets) {
+      const endLabel =
+        b.step === 1 ? ` <span class="muted">(${escapeHtml(r.low_label)})</span>` :
+        b.step === r.steps ? ` <span class="muted">(${escapeHtml(r.high_label)})</span>` : "";
+      html +=
+        `<div class="bar">` +
+        `<div class="bar-label">${b.step}${endLabel}</div>` +
+        `<div class="bar-fill" style="width: ${b.pct}%"></div>` +
+        `<div class="bar-count">${b.count} · ${b.pct}%</div>` +
+        `</div>`;
+    }
+  }
+  const avg = (r.average != null) ? ` · avg ${r.average}` : "";
+  html += `<p class="muted">${r.total} response${r.total === 1 ? "" : "s"}${avg}</p>`;
   return html;
 }
 
@@ -252,6 +274,8 @@ async function pollPresent() {
       const showBars = data.reveal_free_text || data.reveal_correct;
       const showCorrect = data.reveal_correct && data.active_results.any_correct;
       results.innerHTML = renderMCPresent(data.active_results, showBars, showCorrect);
+    } else if (data.active_results.type === "rating_scale") {
+      results.innerHTML = renderRatingPresent(data.active_results, data.reveal_free_text);
     } else {
       results.innerHTML = renderFreeTextPresent(data.active_results, data.reveal_free_text);
     }
@@ -268,6 +292,25 @@ function renderMCPresent(r, showBars, showCorrect) {
         `<div class="bar-label">${escapeHtml(opt.label)}</div>` +
         `<div class="bar-fill" style="width: ${opt.pct}%"></div>` +
         `<div class="bar-count">${opt.count} (${opt.pct}%)</div>` +
+        `</div>`;
+    }
+  }
+  return html;
+}
+
+function renderRatingPresent(r, reveal) {
+  const avg = (reveal && r.average != null) ? ` · avg ${r.average}` : "";
+  let html = `<p class="big">${r.total} response${r.total === 1 ? "" : "s"} received${avg}</p>`;
+  if (reveal) {
+    for (const b of r.buckets) {
+      const endLabel =
+        b.step === 1 ? ` <span class="muted">(${escapeHtml(r.low_label)})</span>` :
+        b.step === r.steps ? ` <span class="muted">(${escapeHtml(r.high_label)})</span>` : "";
+      html +=
+        `<div class="bar">` +
+        `<div class="bar-label">${b.step}${endLabel}</div>` +
+        `<div class="bar-fill" style="width: ${b.pct}%"></div>` +
+        `<div class="bar-count">${b.count} (${b.pct}%)</div>` +
         `</div>`;
     }
   }

@@ -48,6 +48,43 @@ Database:      data/blue-otter-4281.sqlite
 Open the admin URL on your laptop. Show `/present` on the projector. Open
 `/join` on a phone (use a tunnel URL, see below).
 
+## Making the questions
+
+Write a yaml-file on the following format and link to it in the run command as shown above.
+Three question types are supported: `multiple_choice`, `free_text`, and
+`rating_scale`.
+
+```yaml
+title: Demo
+questions:
+  - id: q1
+    type: multiple_choice
+    prompt: "Which color is better"
+    options:
+      - id: A
+        label: "red"
+        is_correct: true
+      - id: B
+        label: "blue"
+        is_correct: true
+      - id: C
+        label: "yellow"
+  - id: q2
+    type: free_text
+    prompt: "Suggest cool activities!"
+  - id: q3
+    type: rating_scale
+    prompt: "How well did you follow this section?"
+    steps: 5            # number of buttons (2..11)
+    low_label: "Lost"   # anchor on step 1
+    high_label: "Got it" # anchor on step `steps`
+```
+
+Rating questions are one-shot (same lock as multiple-choice — no changing
+your answer). The histogram on `/admin` and `/present` is gated on the
+same `R` toggle as free-text answers, and the average is shown alongside
+the response count when revealed.
+
 ## Run with a public tunnel
 
 By default, `lykkepoller run` spawns a Cloudflare Quick Tunnel for you and

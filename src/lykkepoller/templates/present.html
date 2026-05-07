@@ -31,6 +31,18 @@
             </div>
           {% endfor %}
         {% endif %}
+      {% elif active_results.type == "rating_scale" %}
+        <p class="big">{{ active_results.total }} response{{ '' if active_results.total == 1 else 's' }} received{% if reveal_free_text and active_results.average is not none %} · avg {{ active_results.average }}{% endif %}</p>
+        {# Same gating as MC: only reveal the histogram when R is pressed. #}
+        {% if reveal_free_text %}
+          {% for b in active_results.buckets %}
+            <div class="bar">
+              <div class="bar-label">{{ b.step }}{% if b.step == 1 %} <span class="muted">({{ active_results.low_label }})</span>{% elif b.step == active_results.steps %} <span class="muted">({{ active_results.high_label }})</span>{% endif %}</div>
+              <div class="bar-fill" style="width: {{ b.pct }}%"></div>
+              <div class="bar-count">{{ b.count }} ({{ b.pct }}%)</div>
+            </div>
+          {% endfor %}
+        {% endif %}
       {% else %}
         <p class="big">{{ active_results.total }} response{{ '' if active_results.total == 1 else 's' }} received</p>
         {% if reveal_free_text and active_results.approved_answers %}

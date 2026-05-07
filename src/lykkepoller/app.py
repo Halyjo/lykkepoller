@@ -142,21 +142,22 @@ def create_app(*, db_path: Path) -> FastAPI:
         return base, "request"
 
     def _participant_status(active_q, session_id, pid):
-        """Return (prior_mc_answer, free_text_submit_count) for the active
+        """Return (prior_unique_answer, free_text_submit_count) for the active
         question. (None, 0) if there is no active question.
 
-        prior_mc_answer  -- string option_id or None. Drives both the
-                            participant page's "you answered: X" lock (issue #5)
-                            and pre-ticking the radio if rendered for some
-                            reason.
-        free_text_count  -- count of this participant's free-text submissions
-                            for the active question. >0 triggers the
-                            "answer recorded -- submit another if you like"
-                            hint (issue #6).
+        prior_unique_answer -- the participant's recorded answer for one-shot
+                               question types (multiple_choice, rating_scale).
+                               String value (option id, or step number) or
+                               None. Drives the "you answered: X" lock
+                               (issue #5) on the participant page.
+        free_text_count     -- count of this participant's free-text submissions
+                               for the active question. >0 triggers the
+                               "answer recorded -- submit another if you like"
+                               hint (issue #6).
         """
         if active_q is None:
             return None, 0
-        if active_q["type"] == "multiple_choice":
+        if active_q["type"] in ("multiple_choice", "rating_scale"):
             return db_module.get_unique_answer(conn, session_id, active_q["id"], pid), 0
         return None, db_module.participant_text_count(conn, session_id, active_q["id"], pid)
 
@@ -164,6 +165,31 @@ def create_app(*, db_path: Path) -> FastAPI:
         """Build the result summary dict used by both /admin and /present."""
         sid = app.state.session_id
         qid = question["id"]
+        if question["type"] == "rating_scale":
+            counts = db_module.aggregate_choice_counts(conn, sid, qid)
+            steps = question["steps"]
+            buckets = []
+            for step in range(1, steps + 1):
+                buckets.append({"step": step, "count": counts.get(str(step), 0)})
+            total = sum(b["count"] for b in buckets)
+            for b in buckets:
+                b["pct"] = round(100 * b["count"] / total) if total else 0
+            # Average rating, rounded to one decimal. None when no responses
+            # so the template can hide it cleanly.
+            avg = (
+                round(sum(b["step"] * b["count"] for b in buckets) / total, 2)
+                if total
+                else None
+            )
+            return {
+                "type": "rating_scale",
+                "steps": steps,
+                "low_label": question["low_label"],
+                "high_label": question["high_label"],
+                "buckets": buckets,
+                "total": total,
+                "average": avg,
+            }
         if question["type"] == "multiple_choice":
             counts = db_module.aggregate_choice_counts(conn, sid, qid)
             opts = []
@@ -266,6 +292,16 @@ def create_app(*, db_path: Path) -> FastAPI:
                         # we silently drop the resubmit (issue #5).
                         db_module.record_unique_answer(
                             conn, sess["id"], question_id, pid, answer
+                        )
+                elif q["type"] == "rating_scale":
+                    # Answer must be "1".."steps". Same one-shot semantics as MC.
+                    try:
+                        n = int(answer)
+                    except ValueError:
+                        n = 0
+                    if 1 <= n <= q["steps"]:
+                        db_module.record_unique_answer(
+                            conn, sess["id"], question_id, pid, str(n)
                         )
                 else:
                     text = answer.strip()
