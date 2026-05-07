@@ -4,6 +4,12 @@
 <div id="present-app"
      data-phase="{{ phase }}"
      data-qid="{{ active_question.id if active_question else '' }}">
+  {% if phase != "idle" %}
+    <div class="qr-corner">
+      <img src="{{ qr_url }}" alt="QR code to join" class="qr">
+      <p class="join-url">{{ join_url }}</p>
+    </div>
+  {% endif %}
   {% if phase == "ended" %}
     <h1 class="huge">Thanks!</h1>
     <p class="big">{{ title }}</p>

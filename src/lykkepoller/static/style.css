@@ -181,6 +181,9 @@ body.present .title { font-size: 3rem; }
 body.present .qr-block { display: flex; flex-direction: column; align-items: center; gap: 1rem; }
 body.present .qr { width: 380px; height: 380px; image-rendering: pixelated; }
 body.present .join-url { font-family: ui-monospace, "SFMono-Regular", Consolas, monospace; }
+body.present .qr-corner { position: fixed; top: 1.25rem; right: 1.25rem; display: flex; flex-direction: column; align-items: center; gap: 0.4rem; opacity: 0.92; }
+body.present .qr-corner .qr { width: 160px; height: 160px; }
+body.present .qr-corner .join-url { font-size: 0.95rem; margin: 0; color: var(--muted); }
 body.present .present-meta { font-size: 1.2rem; color: var(--muted); margin: 1rem 0 2rem; display: flex; gap: 0.75rem; }
 body.present .bar-label { min-width: 18rem; font-size: 1.4rem; }
 body.present .bar-fill { height: 1.6rem; }
