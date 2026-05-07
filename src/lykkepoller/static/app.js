@@ -137,9 +137,52 @@ async function pollAdmin() {
   // active question highlight + activate button label
   document.querySelectorAll(".question-item").forEach(item => {
     const isActive = item.dataset.qid === data.active_question_id;
+    const r = data.results ? data.results[item.dataset.qid] : null;
+    const hasCorrect = !!(r && r.type === "multiple_choice" && r.any_correct);
     item.classList.toggle("active", isActive);
+    item.classList.toggle("revealed", isActive && !!data.reveal_free_text);
+    item.classList.toggle("correct-revealed", isActive && !!data.reveal_correct && hasCorrect);
     const btn = item.querySelector('form[action="/admin/activate"] button');
     if (btn) btn.textContent = isActive ? "Active" : "Activate";
+
+    // Reveal-state badges (only on the active item):
+    //   .replies — whether free-text/MC results are visible on /present (R)
+    //   .correct — whether the correct MC option is highlighted on /present (C);
+    //              only relevant when the question is MC with a correct option.
+    const head = item.querySelector(".q-head");
+    const typeSpan = head ? head.querySelector(".muted") : null;
+    const ensureBadge = (cls, after) => {
+      let b = item.querySelector(`.reveal-badge.${cls}`);
+      if (!b && head) {
+        b = document.createElement("span");
+        if (after && after.parentNode === head) after.after(b);
+        else head.appendChild(b);
+      }
+      return b;
+    };
+    const removeBadge = (cls) => {
+      const b = item.querySelector(`.reveal-badge.${cls}`);
+      if (b) b.remove();
+    };
+
+    if (isActive) {
+      const replies = ensureBadge("replies", typeSpan);
+      const rOn = !!data.reveal_free_text;
+      replies.className = "reveal-badge replies " + (rOn ? "on" : "off");
+      replies.textContent = rOn ? "Showing on /present" : "Hidden on /present";
+
+      if (hasCorrect) {
+        const correct = ensureBadge("correct", replies);
+        const cOn = !!data.reveal_correct;
+        correct.className = "reveal-badge correct " + (cOn ? "on" : "off");
+        correct.textContent = cOn ? "Correct shown" : "Correct hidden";
+      } else {
+        removeBadge("correct");
+      }
+    } else {
+      removeBadge("replies");
+      removeBadge("correct");
+    }
   });
 
   // reveal free-text toggle button

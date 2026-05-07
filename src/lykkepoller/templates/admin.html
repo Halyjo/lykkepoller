@@ -48,7 +48,8 @@
   </form>
 </section>
 
-<aside class="shortcuts">
+<!-- Not really needed since they are hinted at in parenthesies for each button above -->
+<!-- <aside class="shortcuts">
   <h3>Keyboard shortcuts</h3>
   <ul>
     <li><kbd>→</kbd> / <kbd>Space</kbd> next question (end session if on last)</li>
@@ -60,7 +61,7 @@
     <li><kbd>E</kbd> end session</li>
   </ul>
   <p class="muted">Shortcuts are ignored while typing in a text field.</p>
-</aside>
+</aside> -->
 
 <section class="questions">
   <h2>Questions</h2>
@@ -68,10 +69,20 @@
     {% for q in questions %}
       {% set is_active = state.active_question_id == q.id %}
       {% set res = results[q.id] %}
-      <li class="question-item {% if is_active %}active{% endif %}" data-qid="{{ q.id }}">
+      <li class="question-item{% if is_active %} active{% endif %}{% if is_active and state.reveal_free_text %} revealed{% endif %}{% if is_active and state.reveal_correct and res.type == 'multiple_choice' and res.any_correct %} correct-revealed{% endif %}" data-qid="{{ q.id }}">
         <div class="q-head">
           <strong>{{ loop.index }}. {{ q.prompt }}</strong>
           <span class="muted">({{ q.type }})</span>
+          {% if is_active %}
+            <span class="reveal-badge replies {{ 'on' if state.reveal_free_text else 'off' }}">
+              {{ 'Showing on /present' if state.reveal_free_text else 'Hidden on /present' }}
+            </span>
+            {% if res.type == "multiple_choice" and res.any_correct %}
+              <span class="reveal-badge correct {{ 'on' if state.reveal_correct else 'off' }}">
+                {{ 'Correct shown' if state.reveal_correct else 'Correct hidden' }}
+              </span>
+            {% endif %}
+          {% endif %}
           <form method="post" action="/admin/activate" class="inline">
             <input type="hidden" name="qid" value="{{ q.id }}">
             <button type="submit">{% if is_active %}Active{% else %}Activate{% endif %}</button>

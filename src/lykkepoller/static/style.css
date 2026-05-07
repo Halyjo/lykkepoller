@@ -111,6 +111,23 @@ body.admin main { max-width: 1100px; }
   border: 1px solid var(--border); border-radius: 8px; background: white;
 }
 .question-item.active { background: var(--active); border-color: #d4a800; }
+/* Two independent cues on the active item:
+   - .revealed (R on)         → thick green stripe on the LEFT
+   - .correct-revealed (C on) → thick green stripe on the RIGHT
+   Combined, both stripes appear so the four states are visually distinct. */
+.question-item.active.revealed { box-shadow: inset 8px 0 0 0 #2a6e0a; }
+.question-item.active.correct-revealed { box-shadow: inset -8px 0 0 0 #2e7d32; }
+.question-item.active.revealed.correct-revealed { box-shadow: inset 8px 0 0 0 #2a6e0a, inset -8px 0 0 0 #2e7d32; }
+
+.reveal-badge {
+  display: inline-block; padding: 0.25rem 0.7rem; border-radius: 999px;
+  font-size: 0.85rem; font-weight: 600; letter-spacing: 0.03em;
+}
+.reveal-badge.replies.on { background: #2a6e0a; color: #fff; }
+.reveal-badge.replies.off { background: #f4e5cc; color: #7a4a00; }
+.reveal-badge.correct.on { background: #2e7d32; color: #fff; }
+.reveal-badge.correct.on::before { content: "✓ "; }
+.reveal-badge.correct.off { background: #e6e6e6; color: #555; }
 .q-head { display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap; }
 .q-head .inline { margin-left: auto; }
 .q-results { margin-top: 0.5rem; }
