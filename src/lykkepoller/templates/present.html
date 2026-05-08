@@ -3,7 +3,8 @@
 {% block content %}
 <div id="present-app"
      data-phase="{{ phase }}"
-     data-qid="{{ active_question.id if active_question else '' }}">
+     data-qid="{{ active_question.id if active_question else '' }}"
+     data-admin="{{ '1' if is_admin else '0' }}">
   {% if phase != "idle" %}
     <div class="qr-corner">
       <img src="{{ qr_url }}" alt="QR code to join" class="qr">
@@ -23,32 +24,29 @@
     <div id="present-results">
       {% if active_results.type == "multiple_choice" %}
         <p class="big">{{ active_results.total }} response{{ '' if active_results.total == 1 else 's' }} received</p>
-        {# MC bars are gated by R OR C: pressing C alone (Show correct) on
-           its own would otherwise color a chart that wasn't visible. #}
+        {# Option labels are always shown so the audience can read the choices.
+           Counts/fill are gated by R OR C (C alone would otherwise color a
+           chart that wasn't visible). #}
         {% set show_bars = reveal_free_text or reveal_correct %}
         {% set show_correct = reveal_correct and active_results.any_correct %}
-        {% if show_bars %}
-          {% for opt in active_results.options %}
-            {% set bar_cls = 'bar' + (' correct' if show_correct and opt.is_correct else (' dimmed' if show_correct else '')) %}
-            <div class="{{ bar_cls }}">
-              <div class="bar-label">{{ opt.label }}</div>
-              <div class="bar-fill" style="width: {{ opt.pct }}%"></div>
-              <div class="bar-count">{{ opt.count }} ({{ opt.pct }}%)</div>
-            </div>
-          {% endfor %}
-        {% endif %}
+        {% for opt in active_results.options %}
+          {% set bar_cls = 'bar' + (' correct' if show_bars and show_correct and opt.is_correct else (' dimmed' if show_bars and show_correct else '')) + ('' if show_bars else ' unrevealed') %}
+          <div class="{{ bar_cls }}">
+            <div class="bar-label">{{ opt.label }}</div>
+            <div class="bar-fill" style="width: {{ opt.pct }}%"></div>
+            <div class="bar-count">{{ opt.count }} ({{ opt.pct }}%)</div>
+          </div>
+        {% endfor %}
       {% elif active_results.type == "rating_scale" %}
         <p class="big">{{ active_results.total }} response{{ '' if active_results.total == 1 else 's' }} received{% if reveal_free_text and active_results.average is not none %} · avg {{ active_results.average }}{% endif %}</p>
-        {# Same gating as MC: only reveal the histogram when R is pressed. #}
-        {% if reveal_free_text %}
-          {% for b in active_results.buckets %}
-            <div class="bar">
-              <div class="bar-label">{{ b.step }}{% if b.step == 1 %} <span class="muted">({{ active_results.low_label }})</span>{% elif b.step == active_results.steps %} <span class="muted">({{ active_results.high_label }})</span>{% endif %}</div>
-              <div class="bar-fill" style="width: {{ b.pct }}%"></div>
-              <div class="bar-count">{{ b.count }} ({{ b.pct }}%)</div>
-            </div>
-          {% endfor %}
-        {% endif %}
+        {# Steps are always visible; histogram bars/counts wait for R. #}
+        {% for b in active_results.buckets %}
+          <div class="bar{% if not reveal_free_text %} unrevealed{% endif %}">
+            <div class="bar-label">{{ b.step }}{% if b.step == 1 %} <span class="muted">({{ active_results.low_label }})</span>{% elif b.step == active_results.steps %} <span class="muted">({{ active_results.high_label }})</span>{% endif %}</div>
+            <div class="bar-fill" style="width: {{ b.pct }}%"></div>
+            <div class="bar-count">{{ b.count }} ({{ b.pct }}%)</div>
+          </div>
+        {% endfor %}
       {% else %}
         <p class="big">{{ active_results.total }} response{{ '' if active_results.total == 1 else 's' }} received</p>
         {% if reveal_free_text and active_results.approved_answers %}
@@ -66,6 +64,24 @@
       <img src="{{ qr_url }}" alt="QR code to join" class="qr">
       <p class="big join-url">{{ join_url }}</p>
       <p class="muted"><span id="connected-count">{{ connected_count }}</span> connected</p>
+    </div>
+  {% endif %}
+
+  {% if is_admin %}
+    {# Hidden admin forms so /static/app.js's keyboard shortcuts can submit
+       them by selector, exactly as on /admin. The cookie set during the
+       /present?token=... redirect authorizes the POSTs. #}
+    <div class="admin-controls" hidden>
+      <form method="post" action="/admin/prev"></form>
+      <form method="post" action="/admin/next"></form>
+      <form method="post" action="/admin/clear"></form>
+      <form method="post" action="/admin/reveal">
+        <input type="hidden" name="on" value="{{ '0' if reveal_free_text else '1' }}">
+      </form>
+      <form method="post" action="/admin/reveal_correct">
+        <input type="hidden" name="on" value="{{ '0' if reveal_correct else '1' }}">
+      </form>
+      <form method="post" action="/admin/approve_all"></form>
     </div>
   {% endif %}
 </div>

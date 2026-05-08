@@ -310,10 +310,13 @@ def _start_cloudflared(
 
     atexit.register(_terminate_quietly, proc)
 
+    token = fastapi_app.state.admin_token
     if domain:
         url = f"https://{domain}"
         fastapi_app.state.tunnel_url = url
-        typer.echo(f"\nTunnel:        {url}\n")
+        typer.echo(f"\nTunnel:                  {url}")
+        typer.echo(f"Tunnel present:          {url}/present")
+        typer.echo(f"Tunnel present (drive):  {url}/present?token={token}\n")
         return proc
 
     def _watch():
@@ -329,7 +332,9 @@ def _start_cloudflared(
                 if m:
                     url = m.group(0)
                     fastapi_app.state.tunnel_url = url
-                    typer.echo(f"\nTunnel:        {url}\n")
+                    typer.echo(f"\nTunnel:                  {url}")
+                    typer.echo(f"Tunnel present:          {url}/present")
+                    typer.echo(f"Tunnel present (drive):  {url}/present?token={token}\n")
                     found = True
                 elif time.time() > deadline:
                     break

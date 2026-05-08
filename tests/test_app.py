@@ -95,6 +95,42 @@ def test_admin_token_sets_cookie_then_clean_url(app_client):
     assert "Demo" in r2.text
 
 
+def test_present_token_sets_cookie_then_clean_url(app_client):
+    """/present?token=... should mirror /admin?token=...: validate, set the
+    admin cookie, and 303 to a clean /present so the token disappears from
+    the address bar before any screen share starts."""
+    r = app_client.get("/present?token=secret")
+    assert r.status_code == 303
+    assert r.headers["location"] == "/present"
+    r2 = app_client.get("/present")
+    assert r2.status_code == 200
+    assert 'data-admin="1"' in r2.text
+    # Hidden admin forms are present so the keyboard shortcuts can submit them.
+    assert 'action="/admin/next"' in r2.text
+    assert 'action="/admin/reveal"' in r2.text
+
+
+def test_present_bad_token(app_client):
+    r = app_client.get("/present?token=nope")
+    assert r.status_code == 401
+
+
+def test_present_anonymous_has_no_admin_controls(app_client):
+    r = app_client.get("/present")
+    assert r.status_code == 200
+    assert 'data-admin="0"' in r.text
+    assert 'action="/admin/next"' not in r.text
+
+
+def test_present_cookie_authorizes_admin_posts(app_client):
+    """After /present?token=... sets the cookie, the admin POST endpoints
+    should accept the request -- this is what makes the present-page
+    keyboard shortcuts actually drive the session."""
+    app_client.get("/present?token=secret")
+    r = app_client.post("/admin/activate", data={"qid": "q1"})
+    assert r.status_code == 303
+
+
 # --- state machine ------------------------------------------------------------
 
 

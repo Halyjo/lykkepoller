@@ -146,6 +146,10 @@ body.admin main { max-width: 1100px; }
 .bar.dimmed { opacity: 0.55; }
 .bar.dimmed .bar-fill { background: #b0b0b0; }
 
+/* Pre-reveal: show the option label only, hide vote distribution. */
+.bar.unrevealed .bar-fill,
+.bar.unrevealed .bar-count { display: none; }
+
 .free-text-list { list-style: none; padding: 0; margin-top: 0.5rem; }
 .free-text-list li {
   padding: 0.5rem 0.75rem; margin: 0.3rem 0;

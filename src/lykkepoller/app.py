@@ -316,7 +316,18 @@ def create_app(*, db_path: Path) -> FastAPI:
         return resp
 
     @app.get("/present", response_class=HTMLResponse)
-    async def present(request: Request):
+    async def present(request: Request, token: str | None = None):
+        # Same first-visit cookie flow as /admin: ?token=... validates and
+        # 303s to a clean /present so the token doesn't sit in the URL bar
+        # during screen share. Presenters can drive the session from /present
+        # using the admin keyboard shortcuts once the cookie is set.
+        if token is not None:
+            if token != app.state.admin_token:
+                raise HTTPException(status_code=401, detail="Bad admin token.")
+            resp = RedirectResponse("/present", status_code=303)
+            set_admin_cookie(resp, request, token)
+            return resp
+
         sess = current_session()
         state = current_state()
         active_q = (
@@ -328,6 +339,7 @@ def create_app(*, db_path: Path) -> FastAPI:
         base, _ = compute_base_url(request)
         join_url = base + f"/join/{sess['id']}"
         qr_url = base + "/qr.png"
+        is_admin = request.cookies.get("admin_token") == app.state.admin_token
         return TEMPLATES.TemplateResponse(
             request,
             "present.html",
@@ -340,6 +352,7 @@ def create_app(*, db_path: Path) -> FastAPI:
                 "reveal_correct": state["reveal_correct"],
                 "join_url": join_url,
                 "qr_url": qr_url,
+                "is_admin": is_admin,
                 "connected_count": db_module.count_connected(conn, sess["id"]),
                 "answered_count": (
                     db_module.count_answered(conn, sess["id"], state["active_question_id"])

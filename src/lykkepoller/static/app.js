@@ -42,10 +42,14 @@ document.addEventListener("DOMContentLoaded", () => {
     pollParticipant();
     setInterval(pollParticipant, POLL_MS);
   } else if (document.body.classList.contains("admin")) {
-    bindAdminShortcuts();
+    bindAdminShortcuts(pollAdmin, {onPresent: false});
     pollAdmin();
     setInterval(pollAdmin, POLL_MS);
   } else if (document.body.classList.contains("present")) {
+    const root = document.getElementById("present-app");
+    if (root && root.dataset.admin === "1") {
+      bindAdminShortcuts(pollPresent, {onPresent: true});
+    }
     pollPresent();
     setInterval(pollPresent, POLL_MS);
   }
@@ -323,20 +327,32 @@ async function pollPresent() {
       results.innerHTML = renderFreeTextPresent(data.active_results, data.reveal_free_text);
     }
   }
+
+  // Keep the hidden reveal-toggle forms in sync so a second R/C press sends
+  // the correct flip value rather than a stale one.
+  syncRevealToggle('form[action="/admin/reveal"]', data.reveal_free_text);
+  syncRevealToggle('form[action="/admin/reveal_correct"]', data.reveal_correct);
+}
+
+function syncRevealToggle(selector, currentlyOn) {
+  const form = document.querySelector(selector);
+  if (!form) return;
+  const inp = form.querySelector('input[name="on"]');
+  if (inp) inp.value = currentlyOn ? "0" : "1";
 }
 
 function renderMCPresent(r, showBars, showCorrect) {
   let html = `<p class="big">${r.total} response${r.total === 1 ? "" : "s"} received</p>`;
-  if (showBars) {
-    for (const opt of r.options) {
-      const cls = showCorrect ? (opt.is_correct ? "correct" : "dimmed") : "";
-      html +=
-        `<div class="bar ${cls}">` +
-        `<div class="bar-label">${escapeHtml(opt.label)}</div>` +
-        `<div class="bar-fill" style="width: ${opt.pct}%"></div>` +
-        `<div class="bar-count">${opt.count} (${opt.pct}%)</div>` +
-        `</div>`;
-    }
+  // Option labels are always rendered; .unrevealed hides the fill+count.
+  for (const opt of r.options) {
+    let cls = showBars && showCorrect ? (opt.is_correct ? "correct" : "dimmed") : "";
+    if (!showBars) cls += " unrevealed";
+    html +=
+      `<div class="bar ${cls}">` +
+      `<div class="bar-label">${escapeHtml(opt.label)}</div>` +
+      `<div class="bar-fill" style="width: ${opt.pct}%"></div>` +
+      `<div class="bar-count">${opt.count} (${opt.pct}%)</div>` +
+      `</div>`;
   }
   return html;
 }
@@ -344,18 +360,17 @@ function renderMCPresent(r, showBars, showCorrect) {
 function renderRatingPresent(r, reveal) {
   const avg = (reveal && r.average != null) ? ` · avg ${r.average}` : "";
   let html = `<p class="big">${r.total} response${r.total === 1 ? "" : "s"} received${avg}</p>`;
-  if (reveal) {
-    for (const b of r.buckets) {
-      const endLabel =
-        b.step === 1 ? ` <span class="muted">(${escapeHtml(r.low_label)})</span>` :
-        b.step === r.steps ? ` <span class="muted">(${escapeHtml(r.high_label)})</span>` : "";
-      html +=
-        `<div class="bar">` +
-        `<div class="bar-label">${b.step}${endLabel}</div>` +
-        `<div class="bar-fill" style="width: ${b.pct}%"></div>` +
-        `<div class="bar-count">${b.count} (${b.pct}%)</div>` +
-        `</div>`;
-    }
+  for (const b of r.buckets) {
+    const endLabel =
+      b.step === 1 ? ` <span class="muted">(${escapeHtml(r.low_label)})</span>` :
+      b.step === r.steps ? ` <span class="muted">(${escapeHtml(r.high_label)})</span>` : "";
+    const cls = reveal ? "bar" : "bar unrevealed";
+    html +=
+      `<div class="${cls}">` +
+      `<div class="bar-label">${b.step}${endLabel}</div>` +
+      `<div class="bar-fill" style="width: ${b.pct}%"></div>` +
+      `<div class="bar-count">${b.count} (${b.pct}%)</div>` +
+      `</div>`;
   }
   return html;
 }
@@ -374,7 +389,13 @@ function renderFreeTextPresent(r, reveal) {
 
 // --- admin keyboard shortcuts ----------------------------------------------
 
-function bindAdminShortcuts() {
+function bindAdminShortcuts(refresh, opts) {
+  // refresh: function called after each successful POST to re-fetch state.
+  //   pollAdmin on /admin, pollPresent on /present.
+  // opts.onPresent: skip /admin-only behaviors (E to end, scroll-into-view).
+  //   Dropping E on /present avoids accidentally ending the session from the
+  //   audience-facing screen.
+  const onPresent = !!(opts && opts.onPresent);
   document.addEventListener("keydown", (e) => {
     const tag = ((document.activeElement && document.activeElement.tagName) || "").toLowerCase();
     if (tag === "input" || tag === "textarea") return;
@@ -385,8 +406,9 @@ function bindAdminShortcuts() {
       if (!f) return;
       e.preventDefault();
       fetch(f.action, {method: "POST", body: new FormData(f), credentials: "same-origin"})
-        .then(() => pollAdmin())
+        .then(() => refresh())
         .then(() => {
+          if (onPresent) return;
           const active = document.querySelector(".question-item.active");
           if (active) active.scrollIntoView({behavior: "smooth", block: "nearest"});
         });
@@ -409,7 +431,7 @@ function bindAdminShortcuts() {
         break;
       case "e":
       case "E":
-        submit('form[action="/admin/end"]');
+        if (!onPresent) submit('form[action="/admin/end"]');
         break;
       case "c":
       case "C":
