@@ -60,14 +60,14 @@ A session is driven by a single YAML file. The whole shape:
     do not change it after a session has been created (existing responses
     are stored against this id).
   - `type` *(string, required)* — one of `multiple_choice`, `free_text`,
-    `rating_scale`.
+    `rating`.
   - `prompt` *(string, required)* — what the audience sees.
 - **`multiple_choice` only:**
   - `options` *(list, required, non-empty)* — each option is a mapping with
     `id` *(string, unique within the question)* and `label` *(string)*. An
     optional `is_correct: true` flags one or more options as the correct
     answer (revealed by the `C` shortcut on `/admin`).
-- **`rating_scale` only:**
+- **`rating` only:**
   - `steps` *(integer, required, 2..11)* — number of buttons on the scale.
   - `low_label` and `high_label` *(strings, required, non-empty)* — anchor
     text shown at the ends of the scale; intermediate steps are unlabeled.
@@ -81,7 +81,7 @@ want to read the rules verbatim.
 
 Write a yaml-file on the following format and link to it in the run command as shown above.
 Three question types are supported: `multiple_choice`, `free_text`, and
-`rating_scale`.
+`rating`.
 
 ```yaml
 title: Demo
@@ -102,7 +102,7 @@ questions:
     type: free_text
     prompt: "Suggest cool activities!"
   - id: q3
-    type: rating_scale
+    type: rating
     prompt: "How well did you follow this section?"
     steps: 5            # number of buttons (2..11)
     low_label: "Lost"   # anchor on step 1

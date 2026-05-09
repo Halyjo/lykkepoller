@@ -35,7 +35,7 @@
           <button type="submit">Submit</button>
         </form>
       {% endif %}
-    {% elif active_question.type == "rating_scale" %}
+    {% elif active_question.type == "rating" %}
       {# Like MC, rating is one-shot (issue #5). Once answered, lock. #}
       {% if prior_mc_answer %}
         <p class="submitted big">You answered: <strong>{{ prior_mc_answer }}</strong> / {{ active_question.steps }}</p>

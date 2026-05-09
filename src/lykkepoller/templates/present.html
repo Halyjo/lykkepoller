@@ -37,7 +37,7 @@
             <div class="bar-count">{{ opt.count }} ({{ opt.pct }}%)</div>
           </div>
         {% endfor %}
-      {% elif active_results.type == "rating_scale" %}
+      {% elif active_results.type == "rating" %}
         <p class="big">{{ active_results.total }} response{{ '' if active_results.total == 1 else 's' }} received{% if reveal_free_text and active_results.average is not none %} · avg {{ active_results.average }}{% endif %}</p>
         {# Steps are always visible; histogram bars/counts wait for R. #}
         {% for b in active_results.buckets %}

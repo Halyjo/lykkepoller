@@ -146,7 +146,7 @@ def create_app(*, db_path: Path) -> FastAPI:
         question. (None, 0) if there is no active question.
 
         prior_unique_answer -- the participant's recorded answer for one-shot
-                               question types (multiple_choice, rating_scale).
+                               question types (multiple_choice, rating).
                                String value (option id, or step number) or
                                None. Drives the "you answered: X" lock
                                (issue #5) on the participant page.
@@ -157,7 +157,7 @@ def create_app(*, db_path: Path) -> FastAPI:
         """
         if active_q is None:
             return None, 0
-        if active_q["type"] in ("multiple_choice", "rating_scale"):
+        if active_q["type"] in ("multiple_choice", "rating"):
             return db_module.get_unique_answer(conn, session_id, active_q["id"], pid), 0
         return None, db_module.participant_text_count(conn, session_id, active_q["id"], pid)
 
@@ -165,7 +165,7 @@ def create_app(*, db_path: Path) -> FastAPI:
         """Build the result summary dict used by both /admin and /present."""
         sid = app.state.session_id
         qid = question["id"]
-        if question["type"] == "rating_scale":
+        if question["type"] == "rating":
             counts = db_module.aggregate_choice_counts(conn, sid, qid)
             steps = question["steps"]
             buckets = []
@@ -182,7 +182,7 @@ def create_app(*, db_path: Path) -> FastAPI:
                 else None
             )
             return {
-                "type": "rating_scale",
+                "type": "rating",
                 "steps": steps,
                 "low_label": question["low_label"],
                 "high_label": question["high_label"],
@@ -293,7 +293,7 @@ def create_app(*, db_path: Path) -> FastAPI:
                         db_module.record_unique_answer(
                             conn, sess["id"], question_id, pid, answer
                         )
-                elif q["type"] == "rating_scale":
+                elif q["type"] == "rating":
                     # Answer must be "1".."steps". Same one-shot semantics as MC.
                     try:
                         n = int(answer)

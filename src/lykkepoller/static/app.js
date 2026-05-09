@@ -214,7 +214,7 @@ async function pollAdmin() {
       const isActive = qid === data.active_question_id;
       const showCorrect = data.reveal_correct && isActive && r.any_correct;
       c.innerHTML = renderMCBars(r, showCorrect);
-    } else if (r.type === "rating_scale") {
+    } else if (r.type === "rating") {
       c.innerHTML = renderRatingBars(r);
     } else {
       c.innerHTML = renderFreeTextList(r, qid);
@@ -321,7 +321,7 @@ async function pollPresent() {
       const showBars = data.reveal_free_text || data.reveal_correct;
       const showCorrect = data.reveal_correct && data.active_results.any_correct;
       results.innerHTML = renderMCPresent(data.active_results, showBars, showCorrect);
-    } else if (data.active_results.type === "rating_scale") {
+    } else if (data.active_results.type === "rating") {
       results.innerHTML = renderRatingPresent(data.active_results, data.reveal_free_text);
     } else {
       results.innerHTML = renderFreeTextPresent(data.active_results, data.reveal_free_text);

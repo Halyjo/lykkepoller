@@ -37,13 +37,13 @@ def validate(data) -> None:
             raise ValueError(f"duplicate question id: {qid!r}")
         seen_qids.add(qid)
         qtype = q["type"]
-        if qtype not in ("multiple_choice", "free_text", "rating_scale"):
+        if qtype not in ("multiple_choice", "free_text", "rating"):
             raise ValueError(
                 f"unknown question type {qtype!r} "
-                "(use 'multiple_choice', 'free_text', or 'rating_scale')"
+                "(use 'multiple_choice', 'free_text', or 'rating')"
             )
-        if qtype == "rating_scale":
-            _validate_rating_scale(q)
+        if qtype == "rating":
+            _validate_rating(q)
         elif qtype == "multiple_choice":
             options = q.get("options")
             if not isinstance(options, list) or not options:
@@ -63,7 +63,7 @@ def validate(data) -> None:
                     raise ValueError(f"option {oid!r} in {qid!r}: is_correct must be a boolean")
 
 
-def _validate_rating_scale(q: dict) -> None:
+def _validate_rating(q: dict) -> None:
     """Rating-scale shape: integer steps (>=2) plus two end labels.
 
     Like MC, one answer per participant. The answer is the chosen step as a
@@ -73,14 +73,14 @@ def _validate_rating_scale(q: dict) -> None:
     qid = q["id"]
     steps = q.get("steps")
     if not isinstance(steps, int) or isinstance(steps, bool) or steps < 2:
-        raise ValueError(f"rating_scale {qid!r}: steps must be an integer >= 2")
+        raise ValueError(f"rating {qid!r}: steps must be an integer >= 2")
     if steps > 11:
-        raise ValueError(f"rating_scale {qid!r}: steps must be <= 11 (got {steps})")
+        raise ValueError(f"rating {qid!r}: steps must be <= 11 (got {steps})")
     for key in ("low_label", "high_label"):
         v = q.get(key)
         if not isinstance(v, str) or not v.strip():
             raise ValueError(
-                f"rating_scale {qid!r}: {key!r} is required and must be a non-empty string"
+                f"rating {qid!r}: {key!r} is required and must be a non-empty string"
             )
 
 

@@ -14,4 +14,4 @@ questions:
         label: "yellow"
   - id: q2
     type: free_text
-    prompt: "What is your name?"
+    prompt: "Suggest cool activities!"

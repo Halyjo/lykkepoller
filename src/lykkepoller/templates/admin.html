@@ -102,7 +102,7 @@
               {% endfor %}
             {% endif %}
             <p class="muted">{{ res.total }} response{{ '' if res.total == 1 else 's' }}</p>
-          {% elif res.type == "rating_scale" %}
+          {% elif res.type == "rating" %}
             {% if res.total %}
               {% for b in res.buckets %}
                 <div class="bar">

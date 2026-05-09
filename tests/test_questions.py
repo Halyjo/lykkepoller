@@ -91,7 +91,7 @@ def test_validate_is_correct_must_be_bool():
 def _ok_rating():
     return {
         "id": "qr",
-        "type": "rating_scale",
+        "type": "rating",
         "prompt": "How was it?",
         "steps": 5,
         "low_label": "Bad",
@@ -99,32 +99,32 @@ def _ok_rating():
     }
 
 
-def test_validate_rating_scale_ok():
+def test_validate_rating_ok():
     questions.validate({"title": "T", "questions": [_ok_rating()]})
 
 
-def test_validate_rating_scale_requires_steps_int():
+def test_validate_rating_requires_steps_int():
     q = _ok_rating()
     q["steps"] = "5"
     with pytest.raises(ValueError, match="steps must be an integer"):
         questions.validate({"title": "T", "questions": [q]})
 
 
-def test_validate_rating_scale_rejects_too_few_steps():
+def test_validate_rating_rejects_too_few_steps():
     q = _ok_rating()
     q["steps"] = 1
     with pytest.raises(ValueError, match="steps must be an integer >= 2"):
         questions.validate({"title": "T", "questions": [q]})
 
 
-def test_validate_rating_scale_rejects_too_many_steps():
+def test_validate_rating_rejects_too_many_steps():
     q = _ok_rating()
     q["steps"] = 12
     with pytest.raises(ValueError, match="steps must be <= 11"):
         questions.validate({"title": "T", "questions": [q]})
 
 
-def test_validate_rating_scale_requires_end_labels():
+def test_validate_rating_requires_end_labels():
     q = _ok_rating()
     q["low_label"] = ""
     with pytest.raises(ValueError, match="low_label"):

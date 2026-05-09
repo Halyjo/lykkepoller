@@ -31,12 +31,11 @@ questions:
         label: "Blue"
       - id: green
         label: "Green"
-
   - id: q4
-    type: rating_scale
+    type: rating
     prompt: "How well did you follow this section?"
     # `steps` is the number of buttons (must be 2..11). The audience picks one
     # number; only the two ends are labelled (low_label / high_label).
-    steps: 5
+    steps: 10
     low_label: "Lost"
     high_label: "Got it"

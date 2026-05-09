@@ -29,7 +29,7 @@ def make_qs():
         },
         {
             "id": "qr",
-            "type": "rating_scale",
+            "type": "rating",
             "prompt": "How was it?",
             "steps": 5,
             "low_label": "Bad",
@@ -632,10 +632,10 @@ def test_session_records_source_yaml_filename(app_client, tmp_path):
     c.close()
 
 
-# --- rating_scale (issue #9) -------------------------------------------------
+# --- rating (issue #9) -------------------------------------------------
 
 
-def test_rating_scale_renders_buttons_on_join(app_client):
+def test_rating_renders_buttons_on_join(app_client):
     admin(app_client)
     app_client.post("/admin/activate", data={"qid": "qr"})
     r = app_client.get(f"/join/{SID}")
@@ -649,21 +649,21 @@ def test_rating_scale_renders_buttons_on_join(app_client):
         assert f'value="{n}"' in r.text
 
 
-def test_rating_scale_records_response(app_client):
+def test_rating_records_response(app_client):
     admin(app_client)
     app_client.post("/admin/activate", data={"qid": "qr"})
     r = submit(app_client, "qr", "4", "p-alice")
     assert r.status_code == 303
     state = app_client.get("/api/admin/state").json()
     res = state["results"]["qr"]
-    assert res["type"] == "rating_scale"
+    assert res["type"] == "rating"
     assert res["total"] == 1
     by_step = {b["step"]: b for b in res["buckets"]}
     assert by_step[4]["count"] == 1
     assert res["average"] == 4.0
 
 
-def test_rating_scale_is_one_shot_lock(app_client):
+def test_rating_is_one_shot_lock(app_client):
     """Like MC, a second submit is silently dropped (issue #5 semantics)."""
     admin(app_client)
     app_client.post("/admin/activate", data={"qid": "qr"})
@@ -680,7 +680,7 @@ def test_rating_scale_is_one_shot_lock(app_client):
     assert "You answered" in page
 
 
-def test_rating_scale_rejects_out_of_range(app_client):
+def test_rating_rejects_out_of_range(app_client):
     admin(app_client)
     app_client.post("/admin/activate", data={"qid": "qr"})
     submit(app_client, "qr", "0", "p-alice")
@@ -708,7 +708,7 @@ def test_present_rating_hidden_until_revealed(app_client):
     assert "avg 4" in page
 
 
-def test_rating_scale_average_computed(app_client):
+def test_rating_average_computed(app_client):
     admin(app_client)
     app_client.post("/admin/activate", data={"qid": "qr"})
     submit(app_client, "qr", "1", "p-a")
