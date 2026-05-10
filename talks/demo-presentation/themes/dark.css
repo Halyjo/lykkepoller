@@ -1,0 +1,16 @@
+/* DARK — near-black canvas, warm-white text, mint accent.
+   Reads as "keynote / evening session." Best for dim rooms, dramatic
+   reveals, and decks that carry a lot of code or charts. */
+:root {
+  --slide-bg:       #0f1216;
+  --slide-fg:       #e8e6df;
+  --slide-muted:    #8a8c92;
+  --slide-accent:   #5fd9a4;
+  --slide-panel:    #1a1f27;
+  --slide-border:   #2a3140;
+  --slide-good:     #5fd9a4;
+  --slide-warn:     #ffb454;
+  --slide-bad:      #ff7a85;
+  --slide-font:     Inter, ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --slide-font-headings: var(--slide-font);
+}

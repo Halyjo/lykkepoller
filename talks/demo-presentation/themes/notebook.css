@@ -1,0 +1,17 @@
+/* NOTEBOOK — warm cream, serif body + sans headings, orange accent.
+   Reads as "lecture notes" or "textbook chapter." Best for teaching,
+   workshops, or any session where the audience should feel relaxed
+   and the deck should feel less corporate. */
+:root {
+  --slide-bg:       #fbf6ec;
+  --slide-fg:       #1f261e;
+  --slide-muted:    #6a655a;
+  --slide-accent:   #b85a14;
+  --slide-panel:    #f1ead8;
+  --slide-border:   #d6cdb6;
+  --slide-good:     #5a7a3a;
+  --slide-warn:     #b85a14;
+  --slide-bad:      #8a3a14;
+  --slide-font:     "Iowan Old Style", Georgia, "Palatino Linotype", Palatino, serif;
+  --slide-font-headings: "Avenir Next", "Trebuchet MS", "Helvetica Neue", system-ui, sans-serif;
+}

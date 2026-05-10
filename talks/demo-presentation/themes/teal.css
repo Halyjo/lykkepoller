@@ -1,0 +1,15 @@
+/* TEAL — calm, sans-serif, deep teal accent.
+   The original demo theme. Reads as "professional research talk." */
+:root {
+  --slide-bg:       #ffffff;
+  --slide-fg:       #1a1a1a;
+  --slide-muted:    #5a5a5a;
+  --slide-accent:   #0d7d6c;
+  --slide-panel:    #f0f6f4;
+  --slide-border:   #d8e0dc;
+  --slide-good:     #0d7d6c;
+  --slide-warn:     #b07000;
+  --slide-bad:      #c92a2a;
+  --slide-font:     -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  --slide-font-headings: var(--slide-font);
+}

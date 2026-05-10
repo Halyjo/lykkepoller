@@ -45,7 +45,17 @@ CREATE TABLE IF NOT EXISTS sessions (
     questions_json TEXT NOT NULL,
     public_url_override TEXT,
     admin_token TEXT NOT NULL,
-    source_yaml_filename TEXT
+    source_yaml_filename TEXT,
+    -- Ordered deck spine. JSON list of slide entries:
+    --   {type: "question", question_id: "..."} or
+    --   {type: "content",  source: "slides/01.html", html: "<rendered html>"}
+    -- For legacy questions-only YAMLs, this is synthesized as one
+    -- question slide per question; new "slides:" YAMLs interleave content
+    -- and questions in author-defined order.
+    slides_json TEXT,
+    -- Absolute path to the talk directory, used to mount /talk/* for slide
+    -- assets (images, theme.css). NULL for legacy questions-only sessions.
+    talk_dir TEXT
 );
 
 -- Tracks which question (if any) is currently active, whether the session
@@ -65,6 +75,11 @@ CREATE TABLE IF NOT EXISTS state (
     ended INTEGER NOT NULL DEFAULT 0,
     reveal_free_text INTEGER NOT NULL DEFAULT 0,
     reveal_correct INTEGER NOT NULL DEFAULT 0,
+    -- Index into sessions.slides_json. Drives /admin next/prev navigation
+    -- through the deck. NULL when idle. For a question slide, also implies
+    -- active_question_id is set; for a content slide, active_question_id is
+    -- NULL.
+    active_slide_index INTEGER,
     FOREIGN KEY (session_id) REFERENCES sessions(id)
 );
 
@@ -133,6 +148,9 @@ def init_schema(conn: sqlite3.Connection) -> None:
     # v0.1.0 needs an explicit ALTER TABLE here so old DBs pick it up on reopen.
     _ensure_column(conn, "sessions", "source_yaml_filename", "TEXT")
     _ensure_column(conn, "state", "reveal_correct", "INTEGER NOT NULL DEFAULT 0")
+    _ensure_column(conn, "sessions", "slides_json", "TEXT")
+    _ensure_column(conn, "sessions", "talk_dir", "TEXT")
+    _ensure_column(conn, "state", "active_slide_index", "INTEGER")
     conn.commit()
 
 
@@ -157,11 +175,20 @@ def create_session(
     questions: list[dict],
     admin_token: str,
     source_yaml_filename: str | None = None,
+    slides: list[dict] | None = None,
+    talk_dir: str | None = None,
 ) -> None:
-    """Insert a new session row plus a fresh state row (IDLE)."""
+    """Insert a new session row plus a fresh state row (IDLE).
+
+    `slides` is the rendered deck spine; `talk_dir` is the absolute path the
+    app mounts at /talk/* for slide assets. Both are optional for legacy
+    questions-only sessions; the app synthesizes a slides list from questions
+    in that case so the rest of the code can speak slides uniformly.
+    """
     conn.execute(
         "INSERT INTO sessions (id, title, created_at, questions_json, "
-        "admin_token, source_yaml_filename) VALUES (?, ?, ?, ?, ?, ?)",
+        "admin_token, source_yaml_filename, slides_json, talk_dir) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
         (
             session_id,
             title,
@@ -169,6 +196,8 @@ def create_session(
             json.dumps(questions),
             admin_token,
             source_yaml_filename,
+            json.dumps(slides) if slides is not None else None,
+            talk_dir,
         ),
     )
     conn.execute("INSERT INTO state (session_id) VALUES (?)", (session_id,))
@@ -176,21 +205,35 @@ def create_session(
 
 
 def get_session(conn: sqlite3.Connection) -> dict | None:
-    """Return the (only) session in this DB, or None if it has not been created."""
+    """Return the (only) session in this DB, or None if it has not been created.
+
+    `slides` is always a list -- if the row has no slides_json (legacy
+    questions-only session), we synthesize one question slide per question so
+    the rest of the app can speak slides uniformly.
+    """
     row = conn.execute(
         "SELECT id, title, created_at, questions_json, public_url_override, "
-        "admin_token, source_yaml_filename FROM sessions LIMIT 1"
+        "admin_token, source_yaml_filename, slides_json, talk_dir "
+        "FROM sessions LIMIT 1"
     ).fetchone()
     if row is None:
         return None
+    questions = json.loads(row["questions_json"])
+    slides_raw = row["slides_json"]
+    if slides_raw:
+        slides = json.loads(slides_raw)
+    else:
+        slides = [{"type": "question", "question_id": q["id"]} for q in questions]
     return {
         "id": row["id"],
         "title": row["title"],
         "created_at": row["created_at"],
-        "questions": json.loads(row["questions_json"]),
+        "questions": questions,
         "public_url_override": row["public_url_override"],
         "admin_token": row["admin_token"],
         "source_yaml_filename": row["source_yaml_filename"],
+        "slides": slides,
+        "talk_dir": row["talk_dir"],
     }
 
 
@@ -220,8 +263,8 @@ def replace_questions(conn: sqlite3.Connection, session_id: str, questions: list
 
 def get_state(conn: sqlite3.Connection, session_id: str) -> dict:
     row = conn.execute(
-        "SELECT active_question_id, ended, reveal_free_text, reveal_correct "
-        "FROM state WHERE session_id = ?",
+        "SELECT active_question_id, ended, reveal_free_text, reveal_correct, "
+        "active_slide_index FROM state WHERE session_id = ?",
         (session_id,),
     ).fetchone()
     return {
@@ -229,38 +272,88 @@ def get_state(conn: sqlite3.Connection, session_id: str) -> dict:
         "ended": bool(row["ended"]),
         "reveal_free_text": bool(row["reveal_free_text"]),
         "reveal_correct": bool(row["reveal_correct"]),
+        "active_slide_index": row["active_slide_index"],
     }
 
 
-def set_active_question(conn: sqlite3.Connection, session_id: str, question_id: str) -> None:
+def set_active_question(
+    conn: sqlite3.Connection,
+    session_id: str,
+    question_id: str,
+    slide_index: int | None = None,
+) -> None:
     """Activate a question.
 
     Side effects:
       - Clears `ended` so reactivating from ENDED reopens the session.
       - Resets both reveal flags so each new question starts with nothing shown.
+      - Sets active_slide_index when provided (caller looks up the slide that
+        carries this question and passes its index).
     """
     conn.execute(
-        "UPDATE state SET active_question_id = ?, ended = 0, reveal_correct = 0, reveal_free_text = 0 "
+        "UPDATE state SET active_question_id = ?, ended = 0, "
+        "reveal_correct = 0, reveal_free_text = 0, active_slide_index = ? "
         "WHERE session_id = ?",
-        (question_id, session_id),
+        (question_id, slide_index, session_id),
+    )
+    conn.commit()
+
+
+def set_active_slide_question(
+    conn: sqlite3.Connection,
+    session_id: str,
+    slide_index: int,
+    question_id: str,
+) -> None:
+    """Activate a question slide. Sets both indexes, resets reveal flags
+    (each new question starts hidden), and clears the ended flag."""
+    conn.execute(
+        "UPDATE state SET active_slide_index = ?, active_question_id = ?, "
+        "ended = 0, reveal_correct = 0, reveal_free_text = 0 "
+        "WHERE session_id = ?",
+        (slide_index, question_id, session_id),
+    )
+    conn.commit()
+
+
+def set_active_slide_content(
+    conn: sqlite3.Connection,
+    session_id: str,
+    slide_index: int,
+) -> None:
+    """Activate a content slide.
+
+    Deliberately leaves `active_question_id` and the reveal flags untouched
+    so the participant page stays on the most recent question (people often
+    keep answering during discussion slides) and the presenter's reveal of
+    a result chart on /admin doesn't blink off when they advance to the
+    discussion slide that interprets that chart. Use clear_active_question
+    or end_session to explicitly close out the prior question.
+    """
+    conn.execute(
+        "UPDATE state SET active_slide_index = ?, ended = 0 "
+        "WHERE session_id = ?",
+        (slide_index, session_id),
     )
     conn.commit()
 
 
 def clear_active_question(conn: sqlite3.Connection, session_id: str) -> None:
-    """Return to IDLE."""
+    """Return to IDLE: drop both the active question and the slide index."""
     conn.execute(
-        "UPDATE state SET active_question_id = NULL WHERE session_id = ?",
+        "UPDATE state SET active_question_id = NULL, active_slide_index = NULL "
+        "WHERE session_id = ?",
         (session_id,),
     )
     conn.commit()
 
 
 def end_session(conn: sqlite3.Connection, session_id: str) -> None:
-    """Move to ENDED. Active question is also cleared so the participant page
-    does not keep showing the last question after it ended."""
+    """Move to ENDED. Active question and slide are cleared so the participant
+    page does not keep showing the last question after it ended."""
     conn.execute(
-        "UPDATE state SET ended = 1, active_question_id = NULL WHERE session_id = ?",
+        "UPDATE state SET ended = 1, active_question_id = NULL, "
+        "active_slide_index = NULL WHERE session_id = ?",
         (session_id,),
     )
     conn.commit()

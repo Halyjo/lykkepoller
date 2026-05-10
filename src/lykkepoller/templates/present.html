@@ -1,9 +1,26 @@
 {% extends "base.html" %}
 {% block body_class %}present{% endblock %}
+{% block head_extra %}
+  {# Per-talk theme.css overrides design tokens (CSS variables). Loaded after
+     style.css so its overrides win. Skipped when the talk has no theme.css. #}
+  {% if has_theme_css %}<link rel="stylesheet" href="/talk/theme.css">{% endif %}
+  {# KaTeX auto-render scans the document for $...$ and $$...$$ delimiters
+     once the DOM is ready. Loaded on /present (not /admin or /join) since
+     it's only slide content that uses it. #}
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css" crossorigin="anonymous">
+  <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js" crossorigin="anonymous"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js" crossorigin="anonymous"
+    onload="renderMathInElement(document.body, {delimiters: [
+      {left: '$$', right: '$$', display: true},
+      {left: '$',  right: '$',  display: false}
+    ], throwOnError: false});"></script>
+{% endblock %}
 {% block content %}
 <div id="present-app"
      data-phase="{{ phase }}"
      data-qid="{{ active_question.id if active_question else '' }}"
+     data-slide-index="{{ active_slide_index if active_slide_index is not none else '' }}"
+     data-slide-kind="{{ active_slide.type if active_slide else '' }}"
      data-admin="{{ '1' if is_admin else '0' }}">
   {% if phase != "idle" %}
     <div class="qr-corner">
@@ -14,6 +31,13 @@
   {% if phase == "ended" %}
     <h1 class="huge">Thanks!</h1>
     <p class="big">{{ title }}</p>
+  {% elif phase == "active" and active_slide and active_slide.type == "content" %}
+    {# Content slide: inject the rendered HTML from the snapshot. The slide
+       file authors trusted HTML; macros escape any user-supplied values they
+       receive. #}
+    <article class="slide-content">
+      {{ active_slide.html | safe }}
+    </article>
   {% elif phase == "active" and active_question %}
     <h1 class="prompt">{{ active_question.prompt }}</h1>
     <div class="present-meta">
@@ -24,9 +48,6 @@
     <div id="present-results">
       {% if active_results.type == "multiple_choice" %}
         <p class="big">{{ active_results.total }} response{{ '' if active_results.total == 1 else 's' }} received</p>
-        {# Option labels are always shown so the audience can read the choices.
-           Counts/fill are gated by R OR C (C alone would otherwise color a
-           chart that wasn't visible). #}
         {% set show_bars = reveal_free_text or reveal_correct %}
         {% set show_correct = reveal_correct and active_results.any_correct %}
         {% for opt in active_results.options %}
@@ -39,7 +60,6 @@
         {% endfor %}
       {% elif active_results.type == "rating" %}
         <p class="big">{{ active_results.total }} response{{ '' if active_results.total == 1 else 's' }} received{% if reveal_free_text and active_results.average is not none %} · avg {{ active_results.average }}{% endif %}</p>
-        {# Steps are always visible; histogram bars/counts wait for R. #}
         {% for b in active_results.buckets %}
           <div class="bar{% if not reveal_free_text %} unrevealed{% endif %}">
             <div class="bar-label">{{ b.step }}{% if b.step == 1 %} <span class="muted">({{ active_results.low_label }})</span>{% elif b.step == active_results.steps %} <span class="muted">({{ active_results.high_label }})</span>{% endif %}</div>
@@ -64,6 +84,12 @@
       <img src="{{ qr_url }}" alt="QR code to join" class="qr">
       <p class="big join-url">{{ join_url }}</p>
       <p class="muted"><span id="connected-count">{{ connected_count }}</span> connected</p>
+    </div>
+  {% endif %}
+
+  {% if slide_count and active_slide_index is not none %}
+    <div class="slide-counter">
+      {{ active_slide_index + 1 }} / {{ slide_count }}
     </div>
   {% endif %}
 

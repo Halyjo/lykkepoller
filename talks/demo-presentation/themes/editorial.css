@@ -1,0 +1,16 @@
+/* EDITORIAL — cream paper, serif body, warm rust accent.
+   Reads as "long-form essay" or "magazine spread." Best for talks that
+   are heavy on prose, quotes, and analytical claims. */
+:root {
+  --slide-bg:       #f8f4ec;
+  --slide-fg:       #1a1612;
+  --slide-muted:    #6c6253;
+  --slide-accent:   #a8341c;
+  --slide-panel:    #efe6d2;
+  --slide-border:   #d5c9b0;
+  --slide-good:     #2a6e0a;
+  --slide-warn:     #a8341c;
+  --slide-bad:      #8a1f0c;
+  --slide-font:     Georgia, "Iowan Old Style", "Palatino Linotype", Palatino, serif;
+  --slide-font-headings: var(--slide-font);
+}

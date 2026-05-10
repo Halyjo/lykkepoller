@@ -1,0 +1,30 @@
+title: "Feedback signals matter"
+slides:
+  - content: slides/01-title.html
+  - content: slides/02-bullets.html
+  - content: slides/03-math.html
+  - question:
+      id: metric_goal
+      type: multiple_choice
+      prompt: "What happens if the metric does not reflect the real goal?"
+      options:
+        - {id: A, label: "The model still works"}
+        - {id: B, label: "We do not know if the model works", is_correct: true}
+        - {id: C, label: "The loss fixes it automatically"}
+  - content: slides/04-table.html
+  - content: slides/05-image.html
+  - question:
+      id: examples
+      type: free_text
+      prompt: "Give one example of something a pixel-level metric might miss."
+  - content: slides/06-twocol.html
+  - content: slides/07-code.html
+  - content: slides/08-quote-fragments.html
+  - question:
+      id: confidence
+      type: rating
+      prompt: "How confident are you that your evaluation metric matches what you actually care about?"
+      steps: 5
+      low_label: "Not at all"
+      high_label: "Completely"
+  - content: slides/09-thanks.html

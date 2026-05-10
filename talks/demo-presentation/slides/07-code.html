@@ -1,0 +1,13 @@
+<h2>One line of "metric drift"</h2>
+
+<p>The textbook loss looks innocent:</p>
+
+{{ code_block("python",
+"def loss(y, y_hat):\n"
+"    return -(y * torch.log(y_hat)).sum()\n"
+"\n"
+"# Optimizer minimizes this.\n"
+"# Your stakeholder cares about something else entirely.")
+}}
+
+<p>The objective function is fine. The objective <em>is</em> wrong.</p>

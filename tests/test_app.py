@@ -716,3 +716,156 @@ def test_rating_average_computed(app_client):
     submit(app_client, "qr", "3", "p-c")
     res = app_client.get("/api/admin/state").json()["results"]["qr"]
     assert res["average"] == 3.0
+
+
+# --- slides / mixed content+question deck (feat/basic-presentation-support) -
+
+
+def make_slides_session(tmp_path: Path):
+    """A session with 3 content slides and 2 question slides, in mixed order."""
+    talk_dir = tmp_path / "talk"
+    talk_dir.mkdir()
+    (talk_dir / "intro.html").write_text("<h1>Welcome</h1>")
+    (talk_dir / "discussion.html").write_text("<h2>Discussion slide</h2>")
+    (talk_dir / "outro.html").write_text("<h1>Thanks</h1>")
+    qs = [
+        {
+            "id": "q1",
+            "type": "multiple_choice",
+            "prompt": "Pick a color",
+            "options": [{"id": "r", "label": "red"}, {"id": "b", "label": "blue"}],
+        },
+        {"id": "q2", "type": "free_text", "prompt": "Why?"},
+    ]
+    slides = [
+        {"type": "content", "source": "intro.html", "html": "<h1>Welcome</h1>"},
+        {"type": "question", "question_id": "q1"},
+        {"type": "content", "source": "discussion.html", "html": "<h2>Discussion slide</h2>"},
+        {"type": "question", "question_id": "q2"},
+        {"type": "content", "source": "outro.html", "html": "<h1>Thanks</h1>"},
+    ]
+    p = tmp_path / "s.sqlite"
+    c = db.connect(p)
+    db.init_schema(c)
+    db.create_session(
+        c,
+        "blue-otter-1234",
+        "Demo",
+        qs,
+        "secret",
+        slides=slides,
+        talk_dir=str(talk_dir),
+    )
+    c.close()
+    return p, talk_dir
+
+
+@pytest.fixture
+def slides_client(tmp_path: Path):
+    p, _ = make_slides_session(tmp_path)
+    a = app_module.create_app(db_path=p)
+    return TestClient(a, follow_redirects=False)
+
+
+def test_slides_next_walks_content_and_questions(slides_client):
+    """/admin/next should advance through slides. A question slide sets
+    active_question_id; a content slide preserves whatever question was
+    active before (so the participant page stays on the question while the
+    presenter discusses it on a content slide)."""
+    admin(slides_client)
+    # slide 0: content (no prior question -- starts at None and stays None)
+    slides_client.post("/admin/next")
+    assert slides_client.get("/api/admin/state").json()["active_question_id"] is None
+
+    # slide 1: question q1
+    slides_client.post("/admin/next")
+    assert slides_client.get("/api/admin/state").json()["active_question_id"] == "q1"
+
+    # slide 2: content -- q1 stays active (audience can keep answering)
+    slides_client.post("/admin/next")
+    assert slides_client.get("/api/admin/state").json()["active_question_id"] == "q1"
+
+    # slide 3: question q2 (replaces q1)
+    slides_client.post("/admin/next")
+    assert slides_client.get("/api/admin/state").json()["active_question_id"] == "q2"
+
+    # slide 4: content -- q2 stays
+    slides_client.post("/admin/next")
+    assert slides_client.get("/api/admin/state").json()["active_question_id"] == "q2"
+
+    # past last: ends session (which also clears active_question_id)
+    slides_client.post("/admin/next")
+    s = slides_client.get("/api/admin/state").json()
+    assert s["phase"] == "ended"
+    assert s["active_question_id"] is None
+
+
+def test_slides_clear_resets_question_and_slide(slides_client):
+    """Esc / clear explicitly closes out a question even when the presenter
+    is on a content slide. Both indexes drop, no slide is active."""
+    admin(slides_client)
+    slides_client.post("/admin/next")  # content
+    slides_client.post("/admin/next")  # q1
+    slides_client.post("/admin/next")  # content (q1 still active)
+    assert slides_client.get("/api/admin/state").json()["active_question_id"] == "q1"
+    slides_client.post("/admin/clear")
+    s = slides_client.get("/api/admin/state").json()
+    assert s["active_question_id"] is None
+    assert s["phase"] == "idle"
+
+
+def test_slides_present_renders_content_html(slides_client):
+    admin(slides_client)
+    # advance to the first content slide
+    slides_client.post("/admin/next")
+    r = slides_client.get("/present")
+    assert r.status_code == 200
+    assert "<h1>Welcome</h1>" in r.text
+    # slide counter shows position
+    assert "1 / 5" in r.text
+
+
+def test_slides_activate_by_qid_jumps_to_slide(slides_client):
+    """POST /admin/activate with qid should land on the slide that carries
+    the question (so /present follows along)."""
+    admin(slides_client)
+    slides_client.post("/admin/activate", data={"qid": "q2"})
+    s = slides_client.get("/api/present/state").json()
+    assert s["active_slide_index"] == 3
+    assert s["active_slide_kind"] == "question"
+
+
+def test_slides_talk_assets_served(slides_client):
+    """A file in the talk directory should be reachable at /talk/<name>."""
+    r = slides_client.get("/talk/intro.html")
+    assert r.status_code == 200
+    assert "Welcome" in r.text
+
+
+def test_slides_present_state_reports_slide_kind(slides_client):
+    admin(slides_client)
+    slides_client.post("/admin/next")  # slide 0 = content
+    s = slides_client.get("/api/present/state").json()
+    assert s["active_slide_kind"] == "content"
+    assert s["active_slide_index"] == 0
+    slides_client.post("/admin/next")  # slide 1 = q1
+    s = slides_client.get("/api/present/state").json()
+    assert s["active_slide_kind"] == "question"
+    assert s["active_slide_index"] == 1
+
+
+def test_legacy_questions_only_session_still_works(tmp_path):
+    """A session created without slides/talk_dir (legacy) gets a synthesized
+    slides list at read time so /admin/next still walks question by question."""
+    p = tmp_path / "s.sqlite"
+    c = db.connect(p)
+    db.init_schema(c)
+    db.create_session(c, "blue-otter-1234", "Demo", make_qs(), "secret")
+    c.close()
+    a = app_module.create_app(db_path=p)
+    client = TestClient(a, follow_redirects=False)
+    admin(client)
+    client.post("/admin/next")
+    assert client.get("/api/admin/state").json()["active_question_id"] == "q1"
+    client.post("/admin/next")
+    assert client.get("/api/admin/state").json()["active_question_id"] == "q2"

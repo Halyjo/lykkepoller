@@ -12,6 +12,7 @@ import uvicorn
 from . import app as app_module
 from . import db as db_module
 from . import questions as questions_mod
+from . import slide_render
 
 cli = typer.Typer(no_args_is_help=True, help="Lykkepoller: minimal live polling for presentations.")
 
@@ -73,6 +74,10 @@ def run(
         admin_token = session["admin_token"]
     else:
         data = questions_mod.load(yaml_path)
+        # Render content slides through Jinja with the slide-macro globals so
+        # the snapshot stored in SQLite is the final HTML to inject into
+        # /present. Question slides pass through unchanged.
+        slides = slide_render.render_slides(data["slides"])
         session_id = _friendly_id()
         admin_token = _friendly_id()
         DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -93,8 +98,17 @@ def run(
             data["questions"],
             admin_token,
             source_yaml_filename=yaml_path.name,
+            slides=slides,
+            talk_dir=str(yaml_path.resolve().parent),
         )
         conn.close()
+        n_content = sum(1 for s in slides if s.get("type") == "content")
+        n_question = sum(1 for s in slides if s.get("type") == "question")
+        if n_content or n_question != len(data["questions"]):
+            typer.echo(
+                f"Loaded deck: {n_content} content slide(s), "
+                f"{n_question} question slide(s)."
+            )
 
     fastapi_app = app_module.create_app(db_path=db_path)
 

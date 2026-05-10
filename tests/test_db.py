@@ -79,6 +79,7 @@ def test_initial_state_is_idle(conn, session):
         "ended": False,
         "reveal_free_text": False,
         "reveal_correct": False,
+        "active_slide_index": None,
     }
 
 
