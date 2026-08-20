@@ -13,6 +13,7 @@ def png_bytes(url: str) -> bytes:
     return buf.getvalue()
 
 
-def png_local(url: str, path: str = "presentation/current_qr.png"):
+def png_local(url: str, path: str) -> None:
+    """Render `url` as a QR code and write it to `path`."""
     img = qrcode.make(url)
     img.save(path, format="PNG")

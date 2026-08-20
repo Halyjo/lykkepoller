@@ -250,11 +250,33 @@ def set_public_url_override(
 
 
 def replace_questions(conn: sqlite3.Connection, session_id: str, questions: list[dict]) -> None:
-    """Used by --migrate-questions: overwrite the snapshot."""
+    """Used by --migrate-questions: overwrite the snapshot.
+
+    The deck is kept in step. A question the migration adds has no slide of
+    its own, so it would be invisible on /admin (the deck list is built from
+    slides) and unreachable with next/prev. We append a question slide for
+    each such question, at the end of the deck, in migration order. Slides
+    that were already there keep their position.
+    """
     conn.execute(
         "UPDATE sessions SET questions_json = ? WHERE id = ?",
         (json.dumps(questions), session_id),
     )
+    row = conn.execute(
+        "SELECT slides_json FROM sessions WHERE id = ?", (session_id,)
+    ).fetchone()
+    if row is not None and row["slides_json"]:
+        slides = json.loads(row["slides_json"])
+        on_a_slide = {
+            s["question_id"] for s in slides if s.get("type") == "question"
+        }
+        for q in questions:
+            if q["id"] not in on_a_slide:
+                slides.append({"type": "question", "question_id": q["id"]})
+        conn.execute(
+            "UPDATE sessions SET slides_json = ? WHERE id = ?",
+            (json.dumps(slides), session_id),
+        )
     conn.commit()
 
 

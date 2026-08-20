@@ -43,7 +43,9 @@ def run(
     yes: bool = typer.Option(False, "--yes", help="Skip confirmation prompts."),
     host: str = typer.Option("127.0.0.1", "--host"),
     port: int = typer.Option(8000, "--port"),
-    no_tunnel: bool = typer.Option(False, "--no-tunnel", help="Skip cloudflared tunnel (offline/manual)."),
+    no_tunnel: bool = typer.Option(
+        False, "--no-tunnel", help="Skip cloudflared tunnel (offline/manual)."
+    ),
     domain: str | None = typer.Option(
         None,
         "--domain",
@@ -73,11 +75,18 @@ def run(
         session_id = session["id"]
         admin_token = session["admin_token"]
     else:
-        data = questions_mod.load(yaml_path)
-        # Render content slides through Jinja with the slide-macro globals so
-        # the snapshot stored in SQLite is the final HTML to inject into
-        # /present. Question slides pass through unchanged.
-        slides = slide_render.render_slides(data["slides"])
+        # A malformed YAML or a missing slide file is a typo in the presenter's
+        # own file, not a bug -- show the one line that says what to fix
+        # instead of a traceback.
+        try:
+            data = questions_mod.load(yaml_path)
+            # Render content slides through Jinja with the slide-macro globals
+            # so the snapshot stored in SQLite is the final HTML to inject into
+            # /present. Question slides pass through unchanged.
+            slides = slide_render.render_slides(data["slides"])
+        except Exception as e:
+            typer.secho(f"Could not load {yaml_path}: {e}", fg="red", err=True)
+            raise typer.Exit(code=1) from None
         session_id = _friendly_id()
         admin_token = _friendly_id()
         DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -370,15 +379,19 @@ def _terminate_quietly(proc: subprocess.Popen) -> None:
 
 
 def _print_urls(host: str, port: int, session_id: str, admin_token: str, db_path: Path) -> None:
+    # typer.echo, not print: it flushes, so the URLs still appear when the
+    # output is piped to a file or `tee` (uvicorn.run then blocks forever and
+    # a buffered stdout would never be written out).
     base = f"http://{host}:{port}"
-    print()
-    print(f"Session:       {session_id}")
-    print(f"Local join:    {base}/join")
-    print(f"Local admin:   {base}/admin?token={admin_token}")
-    print(f"Present:       {base}/present")
-    print(f"QR:            {base}/qr.png")
-    print(f"Database:      {db_path}")
-    print()
+    typer.echo("")
+    typer.echo(f"Session:          {session_id}")
+    typer.echo(f"Local join:       {base}/join")
+    typer.echo(f"Local admin:      {base}/admin?token={admin_token}")
+    typer.echo(f"Present:          {base}/present")
+    typer.echo(f"Present (drive):  {base}/present?token={admin_token}")
+    typer.echo(f"QR:               {base}/qr.png")
+    typer.echo(f"Database:         {db_path}")
+    typer.echo("")
 
 
 def main() -> None:

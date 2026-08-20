@@ -8,7 +8,8 @@ sees results on `/present`; participants answer on `/join`.
 
 ## What this is
 
-- A small FastAPI app driven by a YAML question file.
+- A small FastAPI app driven by a YAML question file -- or by a YAML deck
+  of HTML slides with questions interleaved (see "Talks with slides").
 - One SQLite database file per session (in `data/`).
 - A `/present` page for the projector, a `/join` page for participants,
   an `/admin` control page.
@@ -37,16 +38,25 @@ uv run lykkepoller run questions/demo_questions.yaml
 The terminal prints something like:
 
 ```
-Session:       blue-otter-4281
-Local join:    http://127.0.0.1:8000/join
-Local admin:   http://127.0.0.1:8000/admin?token=winter-fox-1934
-Present:       http://127.0.0.1:8000/present
-QR:            http://127.0.0.1:8000/qr.png
-Database:      data/blue-otter-4281.sqlite
+Session:          blue-otter-4281
+Local join:       http://127.0.0.1:8000/join
+Local admin:      http://127.0.0.1:8000/admin?token=winter-fox-1934
+Present:          http://127.0.0.1:8000/present
+Present (drive):  http://127.0.0.1:8000/present?token=winter-fox-1934
+QR:               http://127.0.0.1:8000/qr.png
+Database:         data/2026-05-02-demo_questions-blue-otter-4281.sqlite
 ```
 
 Open the admin URL on your laptop. Show `/present` on the projector. Open
 `/join` on a phone (use a tunnel URL, see below).
+
+`/join` redirects to `/join/<session-id>`; the session id is in the URL so
+a phone that reconnects lands in the right session. Opening the "Present
+(drive)" URL once sets the admin cookie on that browser, after which the
+keyboard shortcuts work directly from the projector page.
+
+The QR is also written to a file next to the session database
+(`data/<same-name>.qr.png`) so you can paste it into a slide.
 
 ## Question file format
 
@@ -55,6 +65,8 @@ A session is driven by a single YAML file. The whole shape:
 - **Root** — a mapping with two keys.
   - `title` *(string, required, non-empty)* — shown on every page.
   - `questions` *(list, required, non-empty)* — the ordered question set.
+    A deck uses `slides:` here instead; the two are mutually exclusive
+    (see "Talks with slides").
 - **Each question** — a mapping with these keys:
   - `id` *(string, required, unique within the file)* — stable identifier;
     do not change it after a session has been created (existing responses
@@ -113,6 +125,71 @@ Rating questions are one-shot (same lock as multiple-choice — no changing
 your answer). The histogram on `/admin` and `/present` is gated on the
 same `R` toggle as free-text answers, and the average is shown alongside
 the response count when revealed.
+
+## Talks with slides
+
+A session can also drive a whole deck: HTML slides and questions in one
+ordered list. Point `run` at the talk's YAML instead of a questions file:
+
+```bash
+uv run lykkepoller run talks/demo-presentation/talk.yaml
+```
+
+The layout of a talk directory:
+
+```text
+talks/demo-presentation/
+  talk.yaml          # the deck: content slides and questions, in order
+  slides/            # one HTML file per content slide
+  theme.css          # optional; overrides the CSS variables for this talk
+  themes/            # the bundled themes theme.css can @import
+  images/            # anything slides reference
+```
+
+`talk.yaml` uses `slides:` instead of `questions:`. Each entry is either a
+path to a slide file or an inline question -- the same question shape as
+a questions-only YAML:
+
+```yaml
+title: "Feedback signals matter"
+slides:
+  - content: slides/01-title.html
+  - content: slides/02-bullets.html
+  - question:
+      id: metric_goal
+      type: multiple_choice
+      prompt: "What happens if the metric does not reflect the real goal?"
+      options:
+        - {id: A, label: "The model still works"}
+        - {id: B, label: "We do not know if the model works", is_correct: true}
+  - content: slides/03-discussion.html
+```
+
+A slide file is plain HTML, rendered through Jinja with a set of macros
+for the common shapes (`title_slide`, `bullets`, `image`, `math`, `table`,
+`two_col`, `code_block`, `quote`, `callout`, `fragment`) -- see
+`src/lykkepoller/slide_macros.py`. Plain HTML works too; the macros are a
+convenience, not a wall.
+
+`→` walks the deck one slide at a time. A question slide opens its
+question; a content slide leaves the previous question open, so people
+keep answering while you talk through the discussion slide that follows
+it. `Esc` closes the question explicitly.
+
+Slides are rendered once, when the session is created, and the resulting
+HTML is stored in the session database -- same rule as questions. Editing
+a slide file mid-talk changes nothing until you start a new session.
+
+### Slide assets
+
+Slides reference files relative to the talk directory, served under
+`/talk/`: `image("images/plot.png")` becomes `/talk/images/plot.png`, and
+`theme.css` is linked automatically when the talk has one.
+
+`/talk/` is public -- anyone with the join link can request it -- so it
+only serves asset file types: `.css`, images, fonts, video, and `.pdf`.
+In particular it will not serve `talk.yaml`, which names the correct
+multiple-choice options and every question you have not asked yet.
 
 ## Run with a public tunnel
 
@@ -181,6 +258,8 @@ Show this on the projector when the audience needs to scan the QR or see
 live results.
 
 - **IDLE** state: large QR code + join URL + connected count.
+- **CONTENT SLIDE** (talks only, see "Talks with slides"): the rendered
+  slide, with a small QR in the corner and the slide counter.
 - **QUESTION_ACTIVE**: the active question, response count, connected
   count, and live result bars (multiple choice). For free text, only the
   response count is shown unless you flip the global "Reveal free-text on
@@ -210,8 +289,8 @@ members from changing questions if someone glimpses the address bar.
 
 ## Participant polling and heartbeat
 
-The participant page (`/join`) polls `GET /api/participant/state` every
-~1.5 seconds. That single endpoint:
+The participant page (`/join/<session-id>`) polls
+`GET /api/participant/state/<session-id>` every ~1.5 seconds. That single endpoint:
 
 - updates `participants.last_seen_at` for the participant's anonymous
   cookie (this is the heartbeat),
@@ -386,7 +465,8 @@ Migration rules:
 - An id present in both: prompt and options are taken from the new YAML.
 - An id only in the DB: kept; existing responses still appear in CSV
   export and in the admin/present results.
-- An id only in the new YAML: appended.
+- An id only in the new YAML: appended, and given a question slide at the
+  end of the deck so it shows up on `/admin` and is reachable with `→`.
 - Existing responses stay tied to their `question_id`.
 
 ### Risks (printed at migration time)
@@ -425,12 +505,17 @@ src/lykkepoller/
   db.py           # all SQL lives here, with comments
   qr.py           # qr.png helper
   exports.py      # CSV export
+  slide_macros.py # bullets(), image(), math(), ... for slide files
+  slide_render.py # runs slide files through Jinja at session-creation time
   templates/      # base.html, participant.html, admin.html, present.html
   static/         # style.css, app.js
 questions/
   demo_questions.yaml
+talks/
+  demo-presentation/    # talk.yaml + slides/ + theme.css + images/
 data/
-  <session-id>.sqlite  (one per session)
+  <date>-<yaml>-<session-id>.sqlite      (one per session)
+  <date>-<yaml>-<session-id>.qr.png      (join QR, for pasting into slides)
 tests/
   test_questions.py / test_db.py / test_app.py / test_exports.py / test_migration.py
 ```

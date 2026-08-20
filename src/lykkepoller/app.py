@@ -4,7 +4,7 @@ import secrets
 from pathlib import Path
 
 from fastapi import FastAPI, Form, HTTPException, Request, Response
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -16,12 +16,25 @@ from . import questions as questions_mod
 PACKAGE_DIR = Path(__file__).parent
 TEMPLATES = Jinja2Templates(directory=str(PACKAGE_DIR / "templates"))
 
+# File types /talk/* will serve out of the talk directory. It is an allowlist,
+# not a denylist, because the talk directory also holds talk.yaml -- which
+# names the correct multiple-choice options and every question that has not
+# been asked yet. Serving the directory wholesale would hand that to any
+# participant who typed /talk/talk.yaml.
+TALK_ASSET_SUFFIXES = {
+    ".css",
+    ".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp", ".avif",
+    ".woff", ".woff2", ".ttf", ".otf",
+    ".mp4", ".webm", ".mov",
+    ".pdf",
+}
 
-def _has_per_talk_theme(talk_dir: str | None) -> bool:
+
+def _has_per_talk_theme(talk_root: Path | None) -> bool:
     """True if the talk directory ships a theme.css we should link from /present."""
-    if not talk_dir:
+    if talk_root is None:
         return False
-    return (Path(talk_dir) / "theme.css").is_file()
+    return (talk_root / "theme.css").is_file()
 
 
 def create_app(*, db_path: Path) -> FastAPI:
@@ -43,6 +56,11 @@ def create_app(*, db_path: Path) -> FastAPI:
     # Set by the cloudflared watcher in cli._start_cloudflared once the public
     # URL is parsed. Stays None when --no-tunnel or when cloudflared fails.
     app.state.tunnel_url = None
+    # Where /qr.png drops its file copy, and the URL that copy encodes.
+    # Next to the database, so one file per session and nothing to clean up
+    # in the directory the presenter happened to start from.
+    app.state.qr_file_path = db_path.with_suffix(".qr.png")
+    app.state.qr_file_url = None
 
     app.mount(
         "/static",
@@ -50,16 +68,12 @@ def create_app(*, db_path: Path) -> FastAPI:
         name="static",
     )
 
-    # Per-talk asset directory: slide HTML can reference images and other
-    # files relative to the talk. Mounted only when the session has a
-    # talk_dir on disk -- legacy questions-only sessions skip this.
+    # Per-talk asset directory: slide HTML can reference images, fonts and
+    # theme CSS relative to the talk. Served by the /talk/{path} route below,
+    # which only hands out the file types in TALK_ASSET_SUFFIXES. None when
+    # the session has no talk directory on disk.
     talk_dir = session.get("talk_dir")
-    if talk_dir and Path(talk_dir).is_dir():
-        app.mount(
-            "/talk",
-            StaticFiles(directory=talk_dir),
-            name="talk",
-        )
+    talk_root = Path(talk_dir).resolve() if talk_dir and Path(talk_dir).is_dir() else None
 
     # --- helpers --------------------------------------------------------------
 
@@ -74,9 +88,10 @@ def create_app(*, db_path: Path) -> FastAPI:
     def phase_of(state: dict) -> str:
         """Phase as seen by participants and the IDLE/ACTIVE/ENDED admin badge.
 
-        A content slide active on /present does NOT count as "active" here:
-        participants should see the waiting screen during discussion slides,
-        not a stale prior-question form.
+        Driven by the active question alone, not by the slide on screen. A
+        question stays open while the presenter walks through the discussion
+        slides that follow it, so phones keep the answer form up instead of
+        snapping back to the waiting screen mid-answer.
         """
         if state["ended"]:
             return "ended"
@@ -88,10 +103,15 @@ def create_app(*, db_path: Path) -> FastAPI:
         """Phase as rendered on /present. Distinguishes content slides from
         the IDLE state (which shows the big QR) so the template can render
         the content slide HTML instead.
+
+        An active question with no slide index also counts as active: a
+        question added by --migrate-questions after the deck was snapshotted
+        has no slide of its own, and it should still show up on the
+        projector when the presenter activates it.
         """
         if state["ended"]:
             return "ended"
-        if state.get("active_slide_index") is not None:
+        if state.get("active_slide_index") is not None or state["active_question_id"]:
             return "active"
         return "idle"
 
@@ -292,6 +312,25 @@ def create_app(*, db_path: Path) -> FastAPI:
 
     # --- public routes --------------------------------------------------------
 
+    @app.get("/talk/{asset_path:path}", include_in_schema=False)
+    async def talk_asset(asset_path: str):
+        """Serve one slide asset out of the talk directory.
+
+        Two things are checked: the resolved path must stay inside the talk
+        directory (no ../ escape) and its extension must be in
+        TALK_ASSET_SUFFIXES (no talk.yaml, no .sqlite, no stray notes).
+        """
+        if talk_root is None:
+            raise HTTPException(status_code=404)
+        full = (talk_root / asset_path).resolve()
+        try:
+            full.relative_to(talk_root)
+        except ValueError:
+            raise HTTPException(status_code=404)
+        if full.suffix.lower() not in TALK_ASSET_SUFFIXES or not full.is_file():
+            raise HTTPException(status_code=404)
+        return FileResponse(full)
+
     @app.get("/", include_in_schema=False)
     async def root():
         return RedirectResponse(f"/join/{app.state.session_id}")
@@ -426,7 +465,7 @@ def create_app(*, db_path: Path) -> FastAPI:
                     if state["active_question_id"]
                     else 0
                 ),
-                "has_theme_css": _has_per_talk_theme(sess.get("talk_dir")),
+                "has_theme_css": _has_per_talk_theme(talk_root),
             },
         )
 
@@ -610,8 +649,15 @@ def create_app(*, db_path: Path) -> FastAPI:
         # picks up the tunnel URL automatically (via X-Forwarded-Host); in pure
         # local dev it falls back to http://127.0.0.1:port/join.
         base, _ = compute_base_url(request)
-        png = qr_mod.png_bytes(base + f"/join/{app.state.session_id}")
-        qr_mod.png_local(base + f"/join/{app.state.session_id}", path="QR.png")
+        join_url = base + f"/join/{app.state.session_id}"
+        png = qr_mod.png_bytes(join_url)
+        # Also drop a copy next to the session database so the presenter can
+        # paste the QR into a slide or a chat message. Written only when the
+        # URL changes: this endpoint is hit by every phone and by /present,
+        # and rewriting the same file a few times a second is disk churn.
+        if app.state.qr_file_url != join_url:
+            qr_mod.png_local(join_url, path=str(app.state.qr_file_path))
+            app.state.qr_file_url = join_url
         return Response(content=png, media_type="image/png")
 
     # --- live polling JSON -----------------------------------------------------

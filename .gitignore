@@ -13,5 +13,6 @@ build/
 data/*.sqlite
 data/*.sqlite-wal
 data/*.sqlite-shm
+data/*.qr.png
 
 .DS_Store

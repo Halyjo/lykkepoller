@@ -164,3 +164,48 @@ def test_cli_migration_rejects_type_change(tmp_path: Path):
 
     with pytest.raises(typer.BadParameter, match="type"):
         cli_mod._do_migration(db_path, yaml_path, assume_yes=True)
+
+
+def test_cli_migration_gives_added_questions_a_slide(tmp_path: Path):
+    """A question the migration adds must land in the deck, otherwise it is
+    invisible on /admin (which lists slides) and next/prev walks past it."""
+    p = tmp_path / "s.sqlite"
+    c = db.connect(p)
+    db.init_schema(c)
+    slides = [
+        {"type": "content", "source": "intro.html", "html": "<h1>Hi</h1>"},
+        {"type": "question", "question_id": "q1"},
+        {"type": "question", "question_id": "q2"},
+    ]
+    db.create_session(c, "blue-otter-1234", "Demo", make_qs(), "tok", slides=slides)
+    c.close()
+
+    new_qs = make_qs() + [{"id": "q3", "type": "free_text", "prompt": "Anything else?"}]
+    cli_mod._do_migration(p, write_yaml(tmp_path / "new.yaml", new_qs), assume_yes=True)
+
+    c = db.connect(p)
+    deck = db.get_session(c)["slides"]
+    c.close()
+    # The original deck order is untouched; the new question is appended.
+    assert [s.get("source") or s.get("question_id") for s in deck] == [
+        "intro.html",
+        "q1",
+        "q2",
+        "q3",
+    ]
+
+
+def test_cli_migration_does_not_duplicate_existing_slides(tmp_path: Path):
+    p = tmp_path / "s.sqlite"
+    c = db.connect(p)
+    db.init_schema(c)
+    slides = [{"type": "question", "question_id": q["id"]} for q in make_qs()]
+    db.create_session(c, "blue-otter-1234", "Demo", make_qs(), "tok", slides=slides)
+    c.close()
+
+    cli_mod._do_migration(p, write_yaml(tmp_path / "new.yaml", make_qs()), assume_yes=True)
+
+    c = db.connect(p)
+    deck = db.get_session(c)["slides"]
+    c.close()
+    assert [s["question_id"] for s in deck] == ["q1", "q2"]

@@ -348,9 +348,15 @@ async function pollPresent() {
     return;
   }
 
-  if (data.phase === "active" && data.active_results) {
-    const results = document.getElementById("present-results");
-    if (!results) return;
+  // Keep the hidden reveal-toggle forms in sync so a second R/C press sends
+  // the correct flip value rather than a stale one. Done before the results
+  // block below, which is skipped on content slides -- the presenter can
+  // still press R while discussing a chart on the following slide.
+  syncRevealToggle('form[action="/admin/reveal"]', data.reveal_free_text);
+  syncRevealToggle('form[action="/admin/reveal_correct"]', data.reveal_correct);
+
+  const results = document.getElementById("present-results");
+  if (results && data.phase === "active" && data.active_results) {
     if (data.active_results.type === "multiple_choice") {
       // Bars are visible when R OR C is on (matches present.html). C alone
       // is enough -- if the presenter wants to show the correct answer, it
@@ -364,11 +370,6 @@ async function pollPresent() {
       results.innerHTML = renderFreeTextPresent(data.active_results, data.reveal_free_text);
     }
   }
-
-  // Keep the hidden reveal-toggle forms in sync so a second R/C press sends
-  // the correct flip value rather than a stale one.
-  syncRevealToggle('form[action="/admin/reveal"]', data.reveal_free_text);
-  syncRevealToggle('form[action="/admin/reveal_correct"]', data.reveal_correct);
 }
 
 function syncRevealToggle(selector, currentlyOn) {

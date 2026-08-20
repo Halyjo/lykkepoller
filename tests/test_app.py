@@ -70,7 +70,7 @@ def admin(client):
 
 
 def test_join_idle(app_client):
-    r = app_client.get("/join")
+    r = app_client.get(f"/join/{SID}")
     assert r.status_code == 200
     assert "Waiting for presenter" in r.text
 
@@ -141,7 +141,7 @@ def test_activate_question_via_post(app_client):
     r = app_client.get("/admin")
     assert "Pick a fruit" in r.text
     # /join now shows the active question
-    r = app_client.get("/join")
+    r = app_client.get(f"/join/{SID}")
     assert "Pick a fruit" in r.text
 
 
@@ -149,15 +149,15 @@ def test_next_from_idle_activates_first(app_client):
     admin(app_client)
     r = app_client.post("/admin/next")
     assert r.status_code == 303
-    r = app_client.get("/join")
+    r = app_client.get(f"/join/{SID}")
     assert "Pick a fruit" in r.text
 
 
 def test_next_past_last_ends_session(app_client):
     admin(app_client)
-    app_client.post("/admin/activate", data={"qid": "q3"})  # last question
+    app_client.post("/admin/activate", data={"qid": "qr"})  # last question
     app_client.post("/admin/next")
-    r = app_client.get("/join")
+    r = app_client.get(f"/join/{SID}")
     assert "Thanks, that's the last one" in r.text
 
 
@@ -165,7 +165,7 @@ def test_prev_walks_backwards(app_client):
     admin(app_client)
     app_client.post("/admin/activate", data={"qid": "q3"})
     app_client.post("/admin/prev")
-    r = app_client.get("/join")
+    r = app_client.get(f"/join/{SID}")
     assert "Why?" in r.text  # q2
 
 
@@ -173,7 +173,7 @@ def test_prev_on_first_is_noop(app_client):
     admin(app_client)
     app_client.post("/admin/activate", data={"qid": "q1"})
     app_client.post("/admin/prev")
-    r = app_client.get("/join")
+    r = app_client.get(f"/join/{SID}")
     assert "Pick a fruit" in r.text
 
 
@@ -181,7 +181,7 @@ def test_clear_returns_to_idle(app_client):
     admin(app_client)
     app_client.post("/admin/activate", data={"qid": "q1"})
     app_client.post("/admin/clear")
-    r = app_client.get("/join")
+    r = app_client.get(f"/join/{SID}")
     assert "Waiting for presenter" in r.text
 
 
@@ -189,7 +189,7 @@ def test_end_session(app_client):
     admin(app_client)
     app_client.post("/admin/activate", data={"qid": "q1"})
     app_client.post("/admin/end")
-    r = app_client.get("/join")
+    r = app_client.get(f"/join/{SID}")
     assert "Thanks, that's the last one" in r.text
 
 
@@ -197,7 +197,7 @@ def test_activating_after_end_reopens(app_client):
     admin(app_client)
     app_client.post("/admin/end")
     app_client.post("/admin/activate", data={"qid": "q1"})
-    r = app_client.get("/join")
+    r = app_client.get(f"/join/{SID}")
     assert "Pick a fruit" in r.text
 
 
@@ -213,9 +213,9 @@ def test_admin_actions_require_admin_cookie(app_client):
 def test_answer_mc_records_response(app_client):
     admin(app_client)
     app_client.post("/admin/activate", data={"qid": "q1"})
-    r = app_client.post("/answer", data={"question_id": "q1", "answer": "A"})
+    r = app_client.post(f"/answer/{SID}", data={"question_id": "q1", "answer": "A"})
     assert r.status_code == 303
-    r = app_client.get("/join")
+    r = app_client.get(f"/join/{SID}")
     # Issue #5: after submitting, the form is replaced with a locked
     # "You answered: ..." block so the participant cannot re-pick.
     assert "You answered" in r.text
@@ -228,8 +228,8 @@ def test_mc_resubmit_does_not_change_answer(app_client):
     their first answer stands."""
     admin(app_client)
     app_client.post("/admin/activate", data={"qid": "q1"})
-    app_client.post("/answer", data={"question_id": "q1", "answer": "A"})
-    app_client.post("/answer", data={"question_id": "q1", "answer": "B"})
+    app_client.post(f"/answer/{SID}", data={"question_id": "q1", "answer": "A"})
+    app_client.post(f"/answer/{SID}", data={"question_id": "q1", "answer": "B"})
     r = app_client.get("/api/admin/state").json()
     by_id = {o["id"]: o for o in r["results"]["q1"]["options"]}
     assert by_id["A"]["count"] == 1
@@ -239,8 +239,8 @@ def test_mc_resubmit_does_not_change_answer(app_client):
 def test_answer_free_text_records_response(app_client):
     admin(app_client)
     app_client.post("/admin/activate", data={"qid": "q2"})
-    app_client.post("/answer", data={"question_id": "q2", "answer": "because"})
-    r = app_client.get("/join")
+    app_client.post(f"/answer/{SID}", data={"question_id": "q2", "answer": "because"})
+    r = app_client.get(f"/join/{SID}")
     # Issue #6: the textarea is NOT pre-filled (so the participant can write
     # a new answer easily), but a hint confirms the submission landed.
     assert "Your answer is registered" in r.text
@@ -252,22 +252,22 @@ def test_answer_free_text_allows_multiple_submits(app_client):
     """Issue #6: free text is append-only -- submitting twice keeps both."""
     admin(app_client)
     app_client.post("/admin/activate", data={"qid": "q2"})
-    app_client.post("/answer", data={"question_id": "q2", "answer": "first"})
-    app_client.post("/answer", data={"question_id": "q2", "answer": "second"})
+    app_client.post(f"/answer/{SID}", data={"question_id": "q2", "answer": "first"})
+    app_client.post(f"/answer/{SID}", data={"question_id": "q2", "answer": "second"})
     # Both answers should be visible to the admin.
     r = app_client.get("/admin")
     assert "first" in r.text
     assert "second" in r.text
     # Participant page hint reflects the count.
-    r = app_client.get("/join")
+    r = app_client.get(f"/join/{SID}")
     assert "2 answers registered" in r.text
 
 
 def test_answer_invalid_mc_option_ignored(app_client):
     admin(app_client)
     app_client.post("/admin/activate", data={"qid": "q1"})
-    app_client.post("/answer", data={"question_id": "q1", "answer": "BOGUS"})
-    r = app_client.get("/join")
+    app_client.post(f"/answer/{SID}", data={"question_id": "q1", "answer": "BOGUS"})
+    r = app_client.get(f"/join/{SID}")
     # No "you answered" lock because we silently dropped the bogus value;
     # the form is still rendered and ready for a real answer.
     assert "You answered" not in r.text
@@ -277,29 +277,21 @@ def test_answer_invalid_mc_option_ignored(app_client):
 def test_answer_for_inactive_question_ignored(app_client):
     admin(app_client)
     # No active question -> /answer should be a no-op.
-    r = app_client.post("/answer", data={"question_id": "q1", "answer": "A"})
+    r = app_client.post(f"/answer/{SID}", data={"question_id": "q1", "answer": "A"})
     assert r.status_code == 303
-    r = app_client.get("/join")
+    r = app_client.get(f"/join/{SID}")
     assert "Waiting for presenter" in r.text
 
 
 # --- results, moderation, CSV (M4) -------------------------------------------
 
 
-def submit_answer(client, qid, answer, participant_cookie=None):
-    """POST /answer with a specific participant_id cookie so we can simulate
-    multiple distinct participants from one TestClient."""
-    if participant_cookie:
-        client.cookies.set("participant_id", participant_cookie)
-    return client.post("/answer", data={"question_id": qid, "answer": answer})
-
-
 def test_admin_renders_mc_bars(app_client):
     admin(app_client)
     app_client.post("/admin/activate", data={"qid": "q1"})
-    submit_answer(app_client, "q1", "A", "p-alice")
-    submit_answer(app_client, "q1", "B", "p-bob")
-    submit_answer(app_client, "q1", "A", "p-carol")
+    submit(app_client, "q1", "A", "p-alice")
+    submit(app_client, "q1", "B", "p-bob")
+    submit(app_client, "q1", "A", "p-carol")
     r = app_client.get("/admin")
     # Expect counts visible: A=2, B=1
     assert "Apple" in r.text
@@ -311,8 +303,8 @@ def test_admin_renders_mc_bars(app_client):
 def test_admin_free_text_approve_toggle(app_client):
     admin(app_client)
     app_client.post("/admin/activate", data={"qid": "q2"})
-    submit_answer(app_client, "q2", "first answer", "p-alice")
-    submit_answer(app_client, "q2", "second answer", "p-bob")
+    submit(app_client, "q2", "first answer", "p-alice")
+    submit(app_client, "q2", "second answer", "p-bob")
     r = app_client.get("/admin")
     assert "first answer" in r.text
     assert "second answer" in r.text
@@ -334,14 +326,17 @@ def test_present_mc_results_hidden_until_revealed(app_client):
     coming in."""
     admin(app_client)
     app_client.post("/admin/activate", data={"qid": "q1"})
-    submit_answer(app_client, "q1", "A", "p-alice")
+    submit(app_client, "q1", "A", "p-alice")
     r = app_client.get("/present")
     assert "1 response received" in r.text
-    assert 'class="bar' not in r.text  # bars hidden
-    # After R, bars appear.
+    # Option labels stay up so the audience can read the choices, but every
+    # bar is marked unrevealed -- CSS hides the fill and the count.
+    assert 'class="bar unrevealed"' in r.text
+    # After R, the same bars lose the unrevealed marker.
     app_client.post("/admin/reveal", data={"on": "1"})
     r = app_client.get("/present")
     assert "Apple" in r.text
+    assert "unrevealed" not in r.text
     assert "1 (100%)" in r.text
 
 
@@ -351,7 +346,7 @@ def test_present_show_correct_alone_reveals_bars(app_client):
     the 'reveal still does not work' bug."""
     admin(app_client)
     app_client.post("/admin/activate", data={"qid": "q1"})
-    submit_answer(app_client, "q1", "B", "p-alice")  # the correct option
+    submit(app_client, "q1", "B", "p-alice")  # the correct option
     # Note: not pressing R. Just C.
     app_client.post("/admin/reveal_correct", data={"on": "1"})
     r = app_client.get("/present")
@@ -364,7 +359,7 @@ def test_present_show_correct_alone_reveals_bars(app_client):
 def test_present_free_text_shows_count_only_by_default(app_client):
     admin(app_client)
     app_client.post("/admin/activate", data={"qid": "q2"})
-    submit_answer(app_client, "q2", "secret thought", "p-alice")
+    submit(app_client, "q2", "secret thought", "p-alice")
     r = app_client.get("/present")
     assert "1 response" in r.text
     assert "secret thought" not in r.text
@@ -373,8 +368,8 @@ def test_present_free_text_shows_count_only_by_default(app_client):
 def test_present_shows_only_approved_when_revealed(app_client):
     admin(app_client)
     app_client.post("/admin/activate", data={"qid": "q2"})
-    submit_answer(app_client, "q2", "ok answer", "p-alice")
-    submit_answer(app_client, "q2", "off-color answer", "p-bob")
+    submit(app_client, "q2", "ok answer", "p-alice")
+    submit(app_client, "q2", "off-color answer", "p-bob")
 
     from lykkepoller import db as dbm
 
@@ -393,7 +388,7 @@ def test_present_shows_only_approved_when_revealed(app_client):
 def test_export_csv_endpoint(app_client):
     admin(app_client)
     app_client.post("/admin/activate", data={"qid": "q1"})
-    submit_answer(app_client, "q1", "A", "p-alice")
+    submit(app_client, "q1", "A", "p-alice")
     r = app_client.get("/admin/export.csv")
     assert r.status_code == 200
     assert r.headers["content-type"].startswith("text/csv")
@@ -418,12 +413,21 @@ def test_qr_png_is_an_image(app_client):
     assert r.content[:8] == b"\x89PNG\r\n\x1a\n"
 
 
+def test_qr_png_also_written_next_to_the_database(app_client):
+    """The file copy is for pasting into a slide. It goes beside the session
+    DB, not into whatever directory the presenter started the app from."""
+    app_client.get("/qr.png")
+    qr_file = app_client.app.state.db_path.with_suffix(".qr.png")
+    assert qr_file.is_file()
+    assert qr_file.read_bytes()[:8] == b"\x89PNG\r\n\x1a\n"
+
+
 def test_api_participant_state_returns_phase_and_heartbeats(app_client):
     admin(app_client)
     app_client.post("/admin/activate", data={"qid": "q1"})
     # Ensure no participant cookie carried over from admin actions.
     app_client.cookies.delete("participant_id")
-    r = app_client.get("/api/participant/state")
+    r = app_client.get(f"/api/participant/state/{SID}")
     assert r.status_code == 200
     payload = r.json()
     assert payload["phase"] == "active"
@@ -438,8 +442,8 @@ def test_api_participant_state_returns_phase_and_heartbeats(app_client):
 def test_api_admin_state_returns_results(app_client):
     admin(app_client)
     app_client.post("/admin/activate", data={"qid": "q1"})
-    submit_answer(app_client, "q1", "A", "p-alice")
-    submit_answer(app_client, "q1", "B", "p-bob")
+    submit(app_client, "q1", "A", "p-alice")
+    submit(app_client, "q1", "B", "p-bob")
     r = app_client.get("/api/admin/state")
     assert r.status_code == 200
     p = r.json()
@@ -452,7 +456,7 @@ def test_api_admin_state_returns_results(app_client):
 def test_api_present_state_includes_active_results(app_client):
     admin(app_client)
     app_client.post("/admin/activate", data={"qid": "q2"})
-    submit_answer(app_client, "q2", "first", "p-alice")
+    submit(app_client, "q2", "first", "p-alice")
     r = app_client.get("/api/present/state")
     p = r.json()
     assert p["phase"] == "active"
@@ -551,8 +555,8 @@ def test_advancing_to_next_question_resets_reveal_correct(app_client):
 def test_admin_renders_correct_class_when_revealed(app_client):
     admin(app_client)
     app_client.post("/admin/activate", data={"qid": "q1"})
-    submit_answer(app_client, "q1", "A", "p-alice")  # the wrong answer
-    submit_answer(app_client, "q1", "B", "p-bob")  # the right answer
+    submit(app_client, "q1", "A", "p-alice")  # the wrong answer
+    submit(app_client, "q1", "B", "p-bob")  # the right answer
     app_client.post("/admin/reveal_correct", data={"on": "1"})
     r = app_client.get("/admin")
     assert 'class="bar correct"' in r.text
@@ -574,9 +578,9 @@ def test_present_renders_correct_class_when_revealed(app_client):
 def test_admin_approve_all_bulk_approves(app_client):
     admin(app_client)
     app_client.post("/admin/activate", data={"qid": "q2"})
-    submit_answer(app_client, "q2", "first", "p-alice")
-    submit_answer(app_client, "q2", "second", "p-bob")
-    submit_answer(app_client, "q2", "third", "p-carol")
+    submit(app_client, "q2", "first", "p-alice")
+    submit(app_client, "q2", "second", "p-bob")
+    submit(app_client, "q2", "third", "p-carol")
     r = app_client.post("/admin/approve_all")
     assert r.status_code == 303
     # All three should now appear with the Unapprove button.
@@ -592,10 +596,10 @@ def test_admin_approve_all_bulk_approves(app_client):
 def test_admin_approve_all_idempotent_picks_up_new(app_client):
     admin(app_client)
     app_client.post("/admin/activate", data={"qid": "q2"})
-    submit_answer(app_client, "q2", "first", "p-alice")
+    submit(app_client, "q2", "first", "p-alice")
     app_client.post("/admin/approve_all")
     # New answer arrives; A again accepts it without unapproving the old one.
-    submit_answer(app_client, "q2", "second", "p-bob")
+    submit(app_client, "q2", "second", "p-bob")
     app_client.post("/admin/approve_all")
     page = app_client.get("/admin").text
     assert page.count("Unapprove") >= 2
@@ -604,7 +608,7 @@ def test_admin_approve_all_idempotent_picks_up_new(app_client):
 def test_admin_approve_all_noop_for_mc(app_client):
     admin(app_client)
     app_client.post("/admin/activate", data={"qid": "q1"})  # multiple_choice
-    submit_answer(app_client, "q1", "A", "p-alice")
+    submit(app_client, "q1", "A", "p-alice")
     r = app_client.post("/admin/approve_all")
     assert r.status_code == 303
     # Nothing should have ended up in approved_free_text.
@@ -728,6 +732,11 @@ def make_slides_session(tmp_path: Path):
     (talk_dir / "intro.html").write_text("<h1>Welcome</h1>")
     (talk_dir / "discussion.html").write_text("<h2>Discussion slide</h2>")
     (talk_dir / "outro.html").write_text("<h1>Thanks</h1>")
+    (talk_dir / "theme.css").write_text(":root { --slide-accent: #123456; }")
+    (talk_dir / "images").mkdir()
+    (talk_dir / "images" / "example.png").write_bytes(b"\x89PNG\r\n\x1a\nfake")
+    # The real thing sits next to the slides: it names the correct options.
+    (talk_dir / "talk.yaml").write_text("title: Demo\nslides: []\n")
     qs = [
         {
             "id": "q1",
@@ -836,10 +845,48 @@ def test_slides_activate_by_qid_jumps_to_slide(slides_client):
 
 
 def test_slides_talk_assets_served(slides_client):
-    """A file in the talk directory should be reachable at /talk/<name>."""
-    r = slides_client.get("/talk/intro.html")
+    """Slide assets -- images, fonts, theme CSS -- are reachable at /talk/."""
+    assert slides_client.get("/talk/images/example.png").status_code == 200
+    r = slides_client.get("/talk/theme.css")
     assert r.status_code == 200
-    assert "Welcome" in r.text
+    assert "--slide-accent" in r.text
+
+
+def test_talk_yaml_is_not_served(slides_client):
+    """The question file lives in the talk directory and names the correct
+    options. Anyone can reach /talk/, so it must not be served."""
+    assert slides_client.get("/talk/talk.yaml").status_code == 404
+    # Nor the slide sources, nor anything else without an asset extension.
+    assert slides_client.get("/talk/intro.html").status_code == 404
+
+
+def test_talk_path_cannot_escape_the_talk_directory(slides_client):
+    # Percent-encoded so httpx does not collapse the ".." before sending it,
+    # which is what makes this reach the route's own guard.
+    assert slides_client.get("/talk/%2e%2e/%2e%2e/etc/passwd").status_code == 404
+    assert slides_client.get("/talk/images/%2e%2e/talk.yaml").status_code == 404
+
+
+def test_present_links_theme_css_when_the_talk_has_one(slides_client):
+    admin(slides_client)
+    slides_client.post("/admin/next")
+    assert '/talk/theme.css' in slides_client.get("/present").text
+
+
+def test_present_shows_a_question_that_has_no_slide(slides_client):
+    """--migrate-questions can add a question after the deck was snapshotted.
+    It has no slide of its own, so activating it leaves active_slide_index
+    unset -- /present must still put it on the projector rather than falling
+    back to the idle QR screen."""
+    from lykkepoller import db as dbm
+
+    c = dbm.connect(slides_client.app.state.db_path)
+    dbm.set_active_question(c, "blue-otter-1234", "q1")  # no slide index
+    c.close()
+    r = slides_client.get("/present")
+    assert r.status_code == 200
+    assert "Pick a color" in r.text
+    assert slides_client.get("/api/present/state").json()["phase"] == "active"
 
 
 def test_slides_present_state_reports_slide_kind(slides_client):
