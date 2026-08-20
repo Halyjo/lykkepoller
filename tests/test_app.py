@@ -874,10 +874,10 @@ def test_present_links_theme_css_when_the_talk_has_one(slides_client):
 
 
 def test_present_shows_a_question_that_has_no_slide(slides_client):
-    """--migrate-questions can add a question after the deck was snapshotted.
-    It has no slide of its own, so activating it leaves active_slide_index
-    unset -- /present must still put it on the projector rather than falling
-    back to the idle QR screen."""
+    """Every question loaded from YAML gets a slide, but a hand-edited
+    database can hold one that does not. Activating it leaves
+    active_slide_index unset -- /present must still put it on the projector
+    rather than falling back to the idle QR screen."""
     from lykkepoller import db as dbm
 
     c = dbm.connect(slides_client.app.state.db_path)

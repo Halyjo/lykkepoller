@@ -34,7 +34,7 @@ from pathlib import Path
 SCHEMA = """
 -- One row per session. The questions snapshot is stored as JSON so that
 -- changes to the YAML file after the session starts do not silently alter
--- what was asked. Use `--migrate-questions` to opt in to changes.
+-- what was asked. To use an edited YAML, start a new session.
 -- source_yaml_filename records the basename of the YAML the session was
 -- created from (e.g. "questions.yaml"); shown by `lykkepoller inspect` so the
 -- DB file's origin is recoverable without opening the snapshot.
@@ -246,37 +246,6 @@ def set_public_url_override(
         "UPDATE sessions SET public_url_override = ? WHERE id = ?",
         (value, session_id),
     )
-    conn.commit()
-
-
-def replace_questions(conn: sqlite3.Connection, session_id: str, questions: list[dict]) -> None:
-    """Used by --migrate-questions: overwrite the snapshot.
-
-    The deck is kept in step. A question the migration adds has no slide of
-    its own, so it would be invisible on /admin (the deck list is built from
-    slides) and unreachable with next/prev. We append a question slide for
-    each such question, at the end of the deck, in migration order. Slides
-    that were already there keep their position.
-    """
-    conn.execute(
-        "UPDATE sessions SET questions_json = ? WHERE id = ?",
-        (json.dumps(questions), session_id),
-    )
-    row = conn.execute(
-        "SELECT slides_json FROM sessions WHERE id = ?", (session_id,)
-    ).fetchone()
-    if row is not None and row["slides_json"]:
-        slides = json.loads(row["slides_json"])
-        on_a_slide = {
-            s["question_id"] for s in slides if s.get("type") == "question"
-        }
-        for q in questions:
-            if q["id"] not in on_a_slide:
-                slides.append({"type": "question", "question_id": q["id"]})
-        conn.execute(
-            "UPDATE sessions SET slides_json = ? WHERE id = ?",
-            (json.dumps(slides), session_id),
-        )
     conn.commit()
 
 

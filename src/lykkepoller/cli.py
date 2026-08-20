@@ -32,15 +32,6 @@ def run(
         readable=True,
         help="Reopen an existing session database.",
     ),
-    migrate_questions: Path = typer.Option(
-        None,
-        "--migrate-questions",
-        exists=True,
-        dir_okay=False,
-        readable=True,
-        help="When reopening with --db, replace the question snapshot with this YAML.",
-    ),
-    yes: bool = typer.Option(False, "--yes", help="Skip confirmation prompts."),
     host: str = typer.Option("127.0.0.1", "--host"),
     port: int = typer.Option(8000, "--port"),
     no_tunnel: bool = typer.Option(
@@ -60,8 +51,6 @@ def run(
     """Start the polling app for a YAML question file or a saved session DB."""
     if db is None and yaml_path is None:
         raise typer.BadParameter("provide YAML_PATH (new session) or --db (reopen).")
-    if db is None and migrate_questions is not None:
-        raise typer.BadParameter("--migrate-questions requires --db.")
 
     if db is not None:
         db_path = db
@@ -69,8 +58,6 @@ def run(
             raise typer.BadParameter(
                 "provide either YAML_PATH (new session) or --db (reopen), not both."
             )
-        if migrate_questions is not None:
-            _do_migration(db_path, migrate_questions, assume_yes=yes)
         session = _peek_session(db_path)
         session_id = session["id"]
         admin_token = session["admin_token"]
@@ -197,54 +184,6 @@ def _peek_session(db_path: Path) -> dict:
     if session is None:
         raise typer.BadParameter(f"{db_path} has no session row.")
     return session
-
-
-def _do_migration(db_path: Path, yaml_path: Path, *, assume_yes: bool) -> None:
-    """Apply --migrate-questions: load YAML, diff against snapshot, replace if confirmed.
-
-    The merge / diff logic is in questions.diff_for_migration; this command
-    just owns the user interaction (printing the summary, surfacing risks,
-    asking for confirmation, writing the result).
-    """
-    new_qs = questions_mod.load(yaml_path)["questions"]
-
-    conn = db_module.connect(db_path)
-    db_module.init_schema(conn)
-    session = db_module.get_session(conn)
-    if session is None:
-        conn.close()
-        raise typer.BadParameter(f"{db_path} has no session row.")
-
-    diff = questions_mod.diff_for_migration(session["questions"], new_qs)
-
-    if diff["type_changes"]:
-        conn.close()
-        raise typer.BadParameter(
-            "Cannot change question type for existing ids: "
-            f"{diff['type_changes']}. Use new ids instead."
-        )
-
-    typer.echo("Migration summary:")
-    typer.echo(f"  added:    {diff['added'] or '-'}")
-    typer.echo(f"  updated:  {diff['updated'] or '-'}")
-    typer.echo(f"  kept (only in DB): {diff['kept'] or '-'}")
-    if diff["option_id_changes"]:
-        typer.echo("")
-        typer.echo("WARNING: the following multiple-choice questions changed option ids.")
-        typer.echo("Existing responses for those options will appear in CSV but will not")
-        typer.echo("aggregate cleanly because they reference ids that no longer exist.")
-        for qid in diff["option_id_changes"]:
-            typer.echo(f"  - {qid}")
-
-    if not assume_yes:
-        if not typer.confirm("Apply migration?", default=False):
-            typer.echo("Aborted; snapshot unchanged.")
-            conn.close()
-            raise typer.Exit(code=1)
-
-    db_module.replace_questions(conn, session["id"], diff["merged"])
-    typer.echo("Migration applied.")
-    conn.close()
 
 
 def _yaml_slug(yaml_path: Path) -> str:

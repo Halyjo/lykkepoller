@@ -17,7 +17,7 @@ Both produce the same shape internally:
 
     {
       "title": str,
-      "questions": [ ...question dicts... ],   # for CSV export, results, migration
+      "questions": [ ...question dicts... ],   # for CSV export and results
       "slides":    [ ...slide entries... ],    # the deck spine
     }
 
@@ -212,53 +212,3 @@ def option_label(question: dict, option_id: str) -> str:
         if o["id"] == option_id:
             return o["label"]
     return ""
-
-
-def diff_for_migration(old: list[dict], new: list[dict]) -> dict:
-    """Compute the diff between a stored snapshot and a candidate YAML.
-
-    Used by `--migrate-questions`. Migration rules:
-      - Match questions by id.
-      - id in both: prompt and options are taken from the new YAML.
-      - id only in DB: kept (existing responses still appear in CSV / UI).
-      - id only in YAML: appended.
-      - Changing a question's `type` for an existing id is forbidden -- the
-        caller must surface this and refuse to write.
-      - Changing option ids on an MC question orphans existing responses; the
-        caller surfaces this as a warning, but the migration still proceeds
-        if confirmed.
-
-    Returns a dict with keys:
-      added, kept, updated, type_changes, option_id_changes -- lists of qids
-      merged -- the new snapshot to persist (only valid if type_changes is empty)
-    """
-    old_by_id = {q["id"]: q for q in old}
-    new_by_id = {q["id"]: q for q in new}
-
-    added = [qid for qid in new_by_id if qid not in old_by_id]
-    kept = [qid for qid in old_by_id if qid not in new_by_id]
-    updated = [qid for qid in new_by_id if qid in old_by_id]
-    type_changes = [qid for qid in updated if old_by_id[qid]["type"] != new_by_id[qid]["type"]]
-    option_id_changes = []
-    for qid in updated:
-        if qid in type_changes:
-            continue
-        if old_by_id[qid]["type"] == "multiple_choice":
-            old_opts = {o["id"] for o in old_by_id[qid].get("options", [])}
-            new_opts = {o["id"] for o in new_by_id[qid].get("options", [])}
-            if old_opts != new_opts:
-                option_id_changes.append(qid)
-
-    merged: list[dict] = list(new)
-    seen = {q["id"] for q in new}
-    for q in old:
-        if q["id"] not in seen:
-            merged.append(q)
-    return {
-        "added": added,
-        "kept": kept,
-        "updated": updated,
-        "type_changes": type_changes,
-        "option_id_changes": option_id_changes,
-        "merged": merged,
-    }

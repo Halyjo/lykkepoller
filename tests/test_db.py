@@ -372,8 +372,3 @@ def test_reopen_existing_database_preserves_state(tmp_path):
     assert db.get_unique_answer(c2, "blue-otter-1234", "q1", "p-alice") == "A"
     c2.close()
 
-
-def test_replace_questions_overwrites_snapshot(conn, session):
-    new_qs = [{"id": "q1", "type": "free_text", "prompt": "renamed"}]
-    db.replace_questions(conn, session, new_qs)
-    assert db.get_session(conn)["questions"] == new_qs

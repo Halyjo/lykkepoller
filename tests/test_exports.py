@@ -69,16 +69,16 @@ def test_csv_free_text_answer_label_empty(tmp_path):
 
 
 def test_csv_orphan_response_still_exported(tmp_path):
-    """Questions removed from the snapshot but with surviving responses still
-    appear in CSV (with empty type/prompt/label)."""
+    """A response whose question is not in the snapshot still appears in CSV
+    (with empty type/prompt/label) rather than being dropped."""
     p = tmp_path / "s.sqlite"
     c = db.connect(p)
     db.init_schema(c)
     db.create_session(c, "blue-otter-1234", "Demo", make_qs(), "tok")
     db.record_unique_answer(c, "blue-otter-1234", "q1", "p-alice", "A")
-    # Replace snapshot so q1 is gone.
-    db.replace_questions(c, "blue-otter-1234", [{"id": "qZ", "type": "free_text", "prompt": "?"}])
-    csv_text = exports.csv_for_session(c, db.get_session(c))
+    session = db.get_session(c)
+    session["questions"] = [{"id": "qZ", "type": "free_text", "prompt": "?"}]
+    csv_text = exports.csv_for_session(c, session)
     rows = list(csv.DictReader(io.StringIO(csv_text)))
     orphan = next(r for r in rows if r["question_id"] == "q1")
     assert orphan["answer"] == "A"

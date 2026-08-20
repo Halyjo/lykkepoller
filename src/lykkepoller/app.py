@@ -104,10 +104,9 @@ def create_app(*, db_path: Path) -> FastAPI:
         the IDLE state (which shows the big QR) so the template can render
         the content slide HTML instead.
 
-        An active question with no slide index also counts as active: a
-        question added by --migrate-questions after the deck was snapshotted
-        has no slide of its own, and it should still show up on the
-        projector when the presenter activates it.
+        An active question with no slide index also counts as active, so
+        a question that somehow has no slide of its own still shows up on
+        the projector rather than falling back to the QR screen.
         """
         if state["ended"]:
             return "ended"
@@ -527,8 +526,8 @@ def create_app(*, db_path: Path) -> FastAPI:
             if i is not None:
                 activate_slide(sess, i)
             else:
-                # Legacy fallback: question exists but no slide carries it
-                # (shouldn't happen post-migration; defensive only).
+                # Every question loaded from YAML gets a slide, so this
+                # only fires on a hand-edited database. Defensive only.
                 db_module.set_active_question(conn, sess["id"], qid)
         return RedirectResponse("/admin", status_code=303)
 
