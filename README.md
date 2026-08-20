@@ -12,6 +12,9 @@ slide deck with the questions built into it.
   phones.
 - No accounts, no scoring, no build step, no database server.
 
+**New here?** [Getting started](GETTING_STARTED.md) walks through one talk,
+start to finish. This page is the reference.
+
 ## Install
 
 You need Python 3.11+, [`uv`](https://docs.astral.sh/uv/), and
