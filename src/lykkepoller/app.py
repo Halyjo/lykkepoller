@@ -1,5 +1,6 @@
 """FastAPI app. One running app == one session, backed by one SQLite file."""
 
+import hashlib
 import secrets
 from pathlib import Path
 
@@ -15,6 +16,25 @@ from . import quiz as quiz_mod
 
 PACKAGE_DIR = Path(__file__).parent
 TEMPLATES = Jinja2Templates(directory=str(PACKAGE_DIR / "templates"))
+
+
+def asset_version() -> str:
+    """Short hash of the static files, put in their URLs as ?v=...
+
+    Cache-Control: no-cache only helps once a browser decides to revalidate.
+    One that already holds app.js under a guessed freshness lifetime keeps
+    serving it until that expires -- and a stale app.js is silent and total:
+    the page renders correct HTML, then the old script overwrites it on the
+    first poll, so a change looks like it was never made. A different URL is
+    a different cache entry, so there is nothing to guess about.
+
+    Read once per run, which is the same moment you have to restart for a
+    Python change anyway.
+    """
+    h = hashlib.sha256()
+    for name in ("app.js", "style.css"):
+        h.update((PACKAGE_DIR / "static" / name).read_bytes())
+    return h.hexdigest()[:8]
 
 
 class RevalidatedStatic(StaticFiles):
@@ -65,6 +85,9 @@ def create_app(*, db_path: Path) -> FastAPI:
     # in the directory the presenter happened to start from.
     app.state.qr_file_path = db_path.with_suffix(".qr.png")
     app.state.qr_file_url = None
+
+    # Every template writes ?v={{ asset_version }} after its /static URLs.
+    TEMPLATES.env.globals["asset_version"] = asset_version()
 
     app.mount(
         "/static",

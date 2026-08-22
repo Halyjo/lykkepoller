@@ -3,7 +3,7 @@
 {% block head_extra %}
   {# The chosen theme only redefines colour and font variables. Loaded after
      style.css so its values win. "plain" means no theme file at all. #}
-  {% if theme and theme != "plain" %}<link rel="stylesheet" href="/static/themes/{{ theme }}.css">{% endif %}
+  {% if theme and theme != "plain" %}<link rel="stylesheet" href="/static/themes/{{ theme }}.css?v={{ asset_version }}">{% endif %}
 {% endblock %}
 {% block content %}
 <div id="present-app"
@@ -95,4 +95,4 @@
   {% endif %}
 </div>
 {% endblock %}
-{% block scripts %}<script src="/static/app.js" defer></script>{% endblock %}
+{% block scripts %}<script src="/static/app.js?v={{ asset_version }}" defer></script>{% endblock %}

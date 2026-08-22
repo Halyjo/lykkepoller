@@ -915,3 +915,42 @@ def test_qr_redraws_for_the_new_address(app_client):
     app_client.app.state.tunnel_url = "https://fluffy-cat.trycloudflare.com"
     second = app_client.get("/qr.png").content
     assert first != second
+
+
+# --- static assets cannot go stale --------------------------------------------
+
+
+def test_pages_version_their_static_urls(app_client):
+    """A stale app.js is silent and total: the page renders correct HTML, then
+    the old script overwrites it on the first poll. A versioned URL is a
+    different cache entry, so the browser cannot serve yesterday's copy."""
+    from lykkepoller.app import asset_version
+
+    v = asset_version()
+    admin(app_client)
+    for path in ("/admin", "/present", f"/join/{SID}"):
+        body = app_client.get(path).text
+        assert f"/static/app.js?v={v}" in body, path
+        assert f"/static/style.css?v={v}" in body, path
+
+
+def test_asset_version_tracks_the_file_contents(tmp_path, monkeypatch):
+    from lykkepoller import app as app_module
+
+    before = app_module.asset_version()
+    js = app_module.PACKAGE_DIR / "static" / "app.js"
+    original = js.read_bytes()
+    try:
+        js.write_bytes(original + b"\n// nudge\n")
+        assert app_module.asset_version() != before
+    finally:
+        js.write_bytes(original)
+    assert app_module.asset_version() == before
+
+
+def test_versioned_url_still_serves_the_file(app_client):
+    from lykkepoller.app import asset_version
+
+    r = app_client.get(f"/static/app.js?v={asset_version()}")
+    assert r.status_code == 200
+    assert "admin/reject" in r.text
