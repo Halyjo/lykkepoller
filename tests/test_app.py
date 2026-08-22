@@ -855,3 +855,21 @@ def test_present_card_count_follows_rejections(app_client):
     app_client.post("/admin/reject", data={"qid": "q2", "rid": bad, "rejected": "1"})
     app_client.post("/admin/approve_all")
     assert "--answer-count: 2" in app_client.get("/present").text
+
+
+def test_static_assets_must_be_revalidated(app_client):
+    """Without this, a browser may reuse an old app.js for hours: the page
+    renders correct HTML, then the stale script overwrites it on the first
+    poll, and the change looks like it was never made."""
+    r = app_client.get("/static/app.js")
+    assert r.status_code == 200
+    assert r.headers["cache-control"] == "no-cache"
+    assert "etag" in r.headers
+
+
+def test_revalidation_is_cheap(app_client):
+    """no-cache means "ask first", not "send it again"."""
+    etag = app_client.get("/static/app.js").headers["etag"]
+    r = app_client.get("/static/app.js", headers={"If-None-Match": etag})
+    assert r.status_code == 304
+    assert r.content == b""

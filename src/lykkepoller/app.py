@@ -17,6 +17,24 @@ PACKAGE_DIR = Path(__file__).parent
 TEMPLATES = Jinja2Templates(directory=str(PACKAGE_DIR / "templates"))
 
 
+class RevalidatedStatic(StaticFiles):
+    """StaticFiles, but the browser must check before reusing a cached copy.
+
+    Starlette sends an ETag and no Cache-Control, which lets a browser guess
+    how long it may reuse app.js without asking. Guess wrong and the page
+    renders the current HTML from the server, then the previous app.js
+    overwrites it on the first poll a second later -- so a change appears to
+    have not been made at all. `no-cache` still allows caching; it just
+    forces the "has this changed?" request, which answers 304 and costs
+    nothing. There is no build step here to put a hash in the filename.
+    """
+
+    def file_response(self, *args, **kwargs):
+        resp = super().file_response(*args, **kwargs)
+        resp.headers["Cache-Control"] = "no-cache"
+        return resp
+
+
 def _one_based(index: int | None) -> int:
     """Question position for display ("3 / 12"). None (idle) shows as 1; the
     counter is hidden in that state anyway."""
@@ -50,7 +68,7 @@ def create_app(*, db_path: Path) -> FastAPI:
 
     app.mount(
         "/static",
-        StaticFiles(directory=str(PACKAGE_DIR / "static")),
+        RevalidatedStatic(directory=str(PACKAGE_DIR / "static")),
         name="static",
     )
 
