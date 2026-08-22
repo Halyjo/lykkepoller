@@ -2,7 +2,7 @@ title: "Demo polling session"
 
 questions:
   - id: q1
-    type: multiple_choice
+    type: multiple_choice # multiple_choise, freetext or rating
     prompt: "Where is the center of the universe?"
     # `is_correct: true` is optional. When set, the presenter can press C
     # (or click "Show correct" on /admin) to highlight the right answer in
@@ -15,7 +15,7 @@ questions:
         label: "A black hole"
       - id: C
         is_correct: true
-        label: "Your retina"
+        label: "You! (your retina is the center of your observable universe)"
 
   - id: q2
     type: free_text
