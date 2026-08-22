@@ -229,6 +229,16 @@ async function pollAdmin() {
     }
   });
 
+  // The join URL and where it came from both change when cloudflared comes
+  // up, seconds after this page was rendered.
+  const joinLink = document.querySelector(".join-block a[href]");
+  if (joinLink && data.join_url && joinLink.getAttribute("href") !== data.join_url) {
+    joinLink.setAttribute("href", data.join_url);
+    joinLink.textContent = data.join_url;
+  }
+  const src = document.querySelector(".join-block .muted");
+  if (src && data.join_url_source) src.textContent = "source: " + data.join_url_source;
+
   // reveal free-text toggle button
   const revealFTForm = document.querySelector('form[action="/admin/reveal"]');
   if (revealFTForm) {
@@ -364,6 +374,12 @@ async function pollPresent() {
     return;
   }
 
+  // The tunnel takes a few seconds to come up, so this page was almost
+  // certainly rendered showing a 127.0.0.1 QR that no phone can reach. Swap
+  // in the real one the moment the address changes, rather than making the
+  // presenter reload. Also covers typing an override URL on /admin mid-talk.
+  updateJoinUrl(root, data.join_url);
+
   // Keep the hidden reveal-toggle forms in sync so a second R/C press sends
   // the correct flip value rather than a stale one.
   syncRevealToggle('form[action="/admin/reveal"]', data.reveal_free_text);
@@ -384,6 +400,16 @@ async function pollPresent() {
       results.innerHTML = renderFreeTextPresent(data.active_results, data.reveal_free_text);
     }
   }
+}
+
+function updateJoinUrl(root, joinUrl) {
+  if (!joinUrl || joinUrl === root.dataset.joinUrl) return;
+  root.dataset.joinUrl = joinUrl;
+  for (const el of document.querySelectorAll(".join-url")) el.textContent = joinUrl;
+  // /qr.png redraws from whatever address the server now believes in. The
+  // query string is only there to defeat the browser's image cache.
+  const bust = "/qr.png?v=" + encodeURIComponent(joinUrl);
+  for (const img of document.querySelectorAll("img.qr")) img.src = bust;
 }
 
 function syncRevealToggle(selector, currentlyOn) {

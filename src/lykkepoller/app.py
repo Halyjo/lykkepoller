@@ -639,6 +639,7 @@ def create_app(*, db_path: Path) -> FastAPI:
         sess = current_session()
         state = current_state()
         active_id = state["active_question_id"]
+        base, base_src = compute_base_url(request)
         return {
             "phase": phase_of(state),
             "active_question_id": active_id,
@@ -650,12 +651,19 @@ def create_app(*, db_path: Path) -> FastAPI:
                 db_module.count_answered(conn, sess["id"], active_id) if active_id else 0
             ),
             "results": {q["id"]: compute_results(q) for q in sess["questions"]},
+            "join_url": base + f"/join/{sess['id']}",
+            "join_url_source": base_src,
         }
 
     @app.get("/api/present/state")
     async def api_present_state(request: Request):
         sess = current_session()
         state = current_state()
+        # cloudflared needs a few seconds to come up, so /present is usually
+        # rendered while the only known address is 127.0.0.1. Sending the
+        # current one on every poll lets the page swap the QR in when the
+        # tunnel finally answers, instead of the presenter reloading by hand.
+        base, _ = compute_base_url(request)
         active_id = state["active_question_id"]
         active_q = quiz_mod.find_question(sess["questions"], active_id) if active_id else None
         return {
@@ -668,6 +676,7 @@ def create_app(*, db_path: Path) -> FastAPI:
             "answered_count": (
                 db_module.count_answered(conn, sess["id"], active_id) if active_id else 0
             ),
+            "join_url": base + f"/join/{sess['id']}",
         }
 
     return app

@@ -873,3 +873,45 @@ def test_revalidation_is_cheap(app_client):
     r = app_client.get("/static/app.js", headers={"If-None-Match": etag})
     assert r.status_code == 304
     assert r.content == b""
+
+
+# --- the join URL catching up with the tunnel ---------------------------------
+
+
+def test_present_state_carries_the_join_url(app_client):
+    """cloudflared comes up seconds after /present was rendered, so the page
+    needs to hear the new address on a poll rather than be reloaded."""
+    p = app_client.get("/api/present/state").json()
+    assert p["join_url"].endswith(f"/join/{SID}")
+
+
+def test_present_join_url_follows_the_tunnel(app_client):
+    before = app_client.get("/api/present/state").json()["join_url"]
+    assert "trycloudflare" not in before
+    app_client.app.state.tunnel_url = "https://fluffy-cat.trycloudflare.com"
+    after = app_client.get("/api/present/state").json()["join_url"]
+    assert after == f"https://fluffy-cat.trycloudflare.com/join/{SID}"
+
+
+def test_present_page_seeds_the_join_url_for_comparison(app_client):
+    """app.js only swaps the QR when the URL differs from what was rendered."""
+    assert 'data-join-url="' in app_client.get("/present").text
+
+
+def test_admin_state_carries_the_join_url_and_source(app_client):
+    admin(app_client)
+    d = app_client.get("/api/admin/state").json()
+    assert d["join_url"].endswith(f"/join/{SID}")
+    assert d["join_url_source"] == "request"  # TestClient's host is "testserver"
+    app_client.app.state.tunnel_url = "https://fluffy-cat.trycloudflare.com"
+    d = app_client.get("/api/admin/state").json()
+    assert d["join_url_source"] == "tunnel"
+
+
+def test_qr_redraws_for_the_new_address(app_client):
+    """The QR encodes whatever address the server currently believes in, so
+    the swapped-in image is genuinely a different code."""
+    first = app_client.get("/qr.png").content
+    app_client.app.state.tunnel_url = "https://fluffy-cat.trycloudflare.com"
+    second = app_client.get("/qr.png").content
+    assert first != second

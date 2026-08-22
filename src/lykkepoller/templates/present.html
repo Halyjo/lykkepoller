@@ -9,6 +9,7 @@
 <div id="present-app"
      data-phase="{{ phase }}"
      data-qid="{{ active_question.id if active_question else '' }}"
+     data-join-url="{{ join_url }}"
      data-admin="{{ '1' if is_admin else '0' }}">
   {% if phase != "idle" %}
     <div class="qr-corner">

@@ -155,8 +155,9 @@ uv run quizzes/my_quiz.py --domain lykkepoller.com
 If the address looks wrong, `/admin` shows where it came from (`tunnel`,
 `headers`, `override`, `localhost`) and has a field to type one in by hand.
 
-**The QR points at 127.0.0.1.** The tunnel is not up yet. Wait for the
-`Tunnel:` line and reload `/present`.
+**The QR points at 127.0.0.1.** The tunnel is not up yet. `/present` swaps in
+the real QR by itself within a second or two of the `Tunnel:` line appearing —
+you do not need to reload it.
 
 ## The admin token
 
