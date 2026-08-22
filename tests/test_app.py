@@ -833,3 +833,25 @@ def test_present_renders_answers_as_cards(app_client):
 def test_reject_requires_admin(app_client):
     r = app_client.post("/admin/reject", data={"qid": "q2", "rid": 1, "rejected": "1"})
     assert r.status_code == 401
+
+
+def test_present_card_count_drives_the_size(app_client):
+    """style.css sizes the cards from --answer-count, so the number has to be
+    in the markup and has to be right."""
+    admin(app_client)
+    app_client.post("/admin/activate", data={"qid": "q2"})
+    for i in range(7):
+        submit(app_client, "q2", f"answer {i}", f"p-{i}")
+    app_client.post("/admin/approve_all")
+    assert "--answer-count: 7" in app_client.get("/present").text
+
+
+def test_present_card_count_follows_rejections(app_client):
+    admin(app_client)
+    app_client.post("/admin/activate", data={"qid": "q2"})
+    for i in range(3):
+        submit(app_client, "q2", f"answer {i}", f"p-{i}")
+    bad = _answers(app_client)[1]["id"]
+    app_client.post("/admin/reject", data={"qid": "q2", "rid": bad, "rejected": "1"})
+    app_client.post("/admin/approve_all")
+    assert "--answer-count: 2" in app_client.get("/present").text

@@ -103,6 +103,10 @@ Read the answers on `/admin`, click `✕` beside anything you don't want, then
 press `A` to approve everything still standing. `A` skips what you crossed out,
 so you can press it again as new answers come in. `↺` puts one back.
 
+Approved answers go up as cards, and the cards shrink as they multiply — full
+size up to four, down to about half by twenty — so a lively question still fits
+on one screen.
+
 Shortcuts are ignored while you are typing in a text field. Each key submits a
 form, so the server stays in charge.
 

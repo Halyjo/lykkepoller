@@ -430,7 +430,8 @@ function renderRatingPresent(r, reveal) {
 function renderFreeTextPresent(r, reveal) {
   let html = `<p class="big">${r.total} response${r.total === 1 ? "" : "s"} received</p>`;
   if (reveal && r.approved_answers && r.approved_answers.length) {
-    html += '<div class="answer-cards">';
+    // The count drives the card size; the arithmetic is all in style.css.
+    html += `<div class="answer-cards" style="--answer-count: ${r.approved_answers.length}">`;
     for (const a of r.approved_answers) {
       html += `<blockquote class="answer-card">${escapeHtml(a.answer)}</blockquote>`;
     }

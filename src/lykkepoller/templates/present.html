@@ -53,7 +53,8 @@
         {% if reveal_free_text and active_results.approved_answers %}
           {# Cards, not a bulleted list: these arrived in whatever order people
              happened to type them, and a list makes that look deliberate. #}
-          <div class="answer-cards">
+          <div class="answer-cards"
+               style="--answer-count: {{ active_results.approved_answers | length }}">
             {% for ans in active_results.approved_answers %}
               <blockquote class="answer-card">{{ ans.answer }}</blockquote>
             {% endfor %}

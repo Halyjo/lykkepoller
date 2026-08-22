@@ -227,21 +227,33 @@ body.present .present-meta { font-size: 1.2rem; color: var(--muted); margin: 1re
 /* Free-text answers as separate cards, not a bulleted list. They arrived in
    whatever order people happened to type them, and a list makes that look
    like a planned sequence. Boxes read as "several people said things". */
+/* Cards shrink as answers pile up, so twenty of them still fit on the screen
+   instead of running off the bottom. The markup carries one number,
+   --answer-count, and every sum below is done here -- so the server render
+   and the poll render have nothing to disagree about.
+
+   Text: 2.1rem at four answers, losing 0.07rem each, floor 0.95rem (~20).
+   Columns: 22rem wide at four, narrowing to 12rem so more fit per row.
+   Both stay capped by the viewport, so a short list never turns cartoonish. */
 body.present .answer-cards {
+  --count: var(--answer-count, 1);
+  --card-min: clamp(12rem, calc(22rem - (var(--count) - 4) * 1rem), 22rem);
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(22rem, 100%), 1fr));
-  gap: 1rem;
+  grid-template-columns: repeat(auto-fit, minmax(min(var(--card-min), 100%), 1fr));
+  gap: clamp(0.5rem, calc(1rem - (var(--count) - 4) * 0.04rem), 1rem);
   margin-top: 1.5rem;
   align-content: start;
 }
 body.present .answer-card {
+  --by-count: calc(2.1rem - (var(--count) - 4) * 0.07rem);
   margin: 0;
-  padding: 1.1rem 1.3rem;
-  font-size: clamp(1.3rem, 2.1vw, 2rem);
+  /* em, so the padding shrinks with the text rather than swallowing it. */
+  padding: 0.6em 0.75em;
+  font-size: clamp(0.95rem, min(calc(2.1vw + 0.6rem), var(--by-count)), 2rem);
   line-height: 1.3;
   background: var(--theme-panel);
   border: 1px solid var(--theme-border);
-  border-left: 5px solid var(--theme-accent);
+  border-left: 0.25em solid var(--theme-accent);
   border-radius: 10px;
   overflow-wrap: break-word;
 }
