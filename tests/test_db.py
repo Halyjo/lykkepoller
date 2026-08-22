@@ -79,7 +79,6 @@ def test_initial_state_is_idle(conn, session):
         "ended": False,
         "reveal_free_text": False,
         "reveal_correct": False,
-        "active_slide_index": None,
     }
 
 
@@ -139,21 +138,18 @@ def test_activating_question_resets_reveal_correct(conn, session):
     assert db.get_state(conn, session)["reveal_correct"] is False
 
 
-def test_create_session_records_yaml_filename(conn):
+def test_create_session_records_source_and_theme(conn):
     db.create_session(
-        conn,
-        "wild-fox-9999",
-        "Demo",
-        make_qs(),
-        "tok",
-        source_yaml_filename="SAR-presentation.yaml",
+        conn, "wild-fox-9999", "Demo", make_qs(), "tok",
+        source_filename="sar_talk.py", theme="notebook",
     )
     s = db.get_session(conn)
-    assert s["source_yaml_filename"] == "SAR-presentation.yaml"
+    assert s["source_filename"] == "sar_talk.py"
+    assert s["theme"] == "notebook"
 
 
 def test_init_schema_migrates_old_db(tmp_path):
-    """Reopening a v0.1.0 DB (no source_yaml_filename, no reveal_correct)
+    """Reopening a v0.1.0 DB (no source_filename, theme or reveal_correct)
     should not crash; the columns get added on init_schema."""
     p = tmp_path / "old.sqlite"
     c = sqlite3.connect(p)
@@ -185,7 +181,8 @@ def test_init_schema_migrates_old_db(tmp_path):
     db.init_schema(c2)
     s = db.get_session(c2)
     assert s["id"] == "blue-otter-1234"
-    assert s["source_yaml_filename"] is None
+    assert s["source_filename"] is None
+    assert s["theme"] == "plain"
     st = db.get_state(c2, "blue-otter-1234")
     assert st["reveal_correct"] is False
     c2.close()
@@ -372,3 +369,58 @@ def test_reopen_existing_database_preserves_state(tmp_path):
     assert db.get_unique_answer(c2, "blue-otter-1234", "q1", "p-alice") == "A"
     c2.close()
 
+
+
+# --- rejecting free text ------------------------------------------------------
+
+
+def test_reject_and_unreject(conn, session):
+    db.append_text_answer(conn, session, "q2", "p1", "hello")
+    rid = db.list_text_responses(conn, session, "q2")[0]["id"]
+    db.reject_free_text(conn, session, "q2", rid)
+    assert db.list_rejected_ids(conn, session, "q2") == {rid}
+    db.unreject_free_text(conn, session, "q2", rid)
+    assert db.list_rejected_ids(conn, session, "q2") == set()
+
+
+def test_reject_removes_an_existing_approval(conn, session):
+    db.append_text_answer(conn, session, "q2", "p1", "hello")
+    rid = db.list_text_responses(conn, session, "q2")[0]["id"]
+    db.approve_free_text(conn, session, "q2", rid)
+    db.reject_free_text(conn, session, "q2", rid)
+    assert db.is_approved(conn, session, "q2", rid) is False
+
+
+def test_approve_all_skips_rejected(conn, session):
+    for i, pid in enumerate(["p1", "p2", "p3"]):
+        db.append_text_answer(conn, session, "q2", pid, f"answer {i}")
+    ids = [r["id"] for r in db.list_text_responses(conn, session, "q2")]
+    db.reject_free_text(conn, session, "q2", ids[1])
+    assert db.approve_all_existing_free_text(conn, session, "q2") == 2
+    approved = {a["id"] for a in db.list_approved_free_text(conn, session, "q2")}
+    assert approved == {ids[0], ids[2]}
+
+
+def test_approve_all_picks_up_an_unrejected_answer(conn, session):
+    db.append_text_answer(conn, session, "q2", "p1", "hello")
+    rid = db.list_text_responses(conn, session, "q2")[0]["id"]
+    db.reject_free_text(conn, session, "q2", rid)
+    db.approve_all_existing_free_text(conn, session, "q2")
+    assert db.is_approved(conn, session, "q2", rid) is False
+    db.unreject_free_text(conn, session, "q2", rid)
+    db.approve_all_existing_free_text(conn, session, "q2")
+    assert db.is_approved(conn, session, "q2", rid) is True
+
+
+def test_rejection_is_per_question(conn, session):
+    db.append_text_answer(conn, session, "q2", "p1", "hello")
+    rid = db.list_text_responses(conn, session, "q2")[0]["id"]
+    db.reject_free_text(conn, session, "q2", rid)
+    assert db.list_rejected_ids(conn, session, "q1") == set()
+
+
+def test_set_active_question_can_open_revealed(conn, session):
+    db.set_active_question(conn, session, "q2", reveal_free_text=True)
+    assert db.get_state(conn, session)["reveal_free_text"] is True
+    db.set_active_question(conn, session, "q1")
+    assert db.get_state(conn, session)["reveal_free_text"] is False

@@ -48,113 +48,88 @@
   </form>
 </section>
 
-<!-- Not really needed since they are hinted at in parenthesies for each button above -->
-<!-- <aside class="shortcuts">
-  <h3>Keyboard shortcuts</h3>
-  <ul>
-    <li><kbd>→</kbd> / <kbd>Space</kbd> next question (end session if on last)</li>
-    <li><kbd>←</kbd> previous question</li>
-    <li><kbd>Esc</kbd> clear active question (back to IDLE)</li>
-    <li><kbd>R</kbd> toggle reveal answers on /present</li>
-    <li><kbd>C</kbd> toggle show correct answer</li>
-    <li><kbd>A</kbd> approve all free-text submitted so far</li>
-    <li><kbd>E</kbd> end session</li>
-  </ul>
-  <p class="muted">Shortcuts are ignored while typing in a text field.</p>
-</aside> -->
-
 <section class="questions">
-  <h2>Deck</h2>
-  <ol class="slide-list">
-    {% for slide in slides %}
-      {% set is_displayed = state.active_slide_index == loop.index0 %}
-      {% if slide.type == "question" %}
-        {% set q = questions_by_id[slide.question_id] %}
-        {% set is_answering = state.active_question_id == q.id %}
-        {% set res = results[q.id] %}
-        {# Two visual cues, each driven by a separate piece of state:
-             .active     -> this slide is the one currently on /present
-             .answering  -> this question is the one accepting answers right
-                            now (still set when the presenter has moved on
-                            to a discussion content slide). The reveal
-                            stripes/badges follow .answering, not .active. #}
-        <li class="slide-item question-item{% if is_displayed %} active{% endif %}{% if is_answering %} answering{% endif %}{% if is_answering and state.reveal_free_text %} revealed{% endif %}{% if is_answering and state.reveal_correct and res.type == 'multiple_choice' and res.any_correct %} correct-revealed{% endif %}" data-slide-index="{{ loop.index0 }}" data-qid="{{ q.id }}">
-          <div class="q-head">
-            <strong>{{ loop.index }}. {{ q.prompt }}</strong>
-            <span class="muted">({{ q.type }})</span>
-            {% if is_answering %}
-              <span class="reveal-badge replies {{ 'on' if state.reveal_free_text else 'off' }}">
-                {{ 'Showing on /present' if state.reveal_free_text else 'Hidden on /present' }}
+  <h2>Questions</h2>
+  <ol class="question-list">
+    {% for q in questions %}
+      {% set is_active = state.active_question_id == q.id %}
+      {% set res = results[q.id] %}
+      <li class="question-item{% if is_active %} active answering{% endif %}{% if is_active and state.reveal_free_text %} revealed{% endif %}{% if is_active and state.reveal_correct and res.type == 'multiple_choice' and res.any_correct %} correct-revealed{% endif %}" data-qid="{{ q.id }}">
+        <div class="q-head">
+          <strong>{{ loop.index }}. {{ q.prompt }}</strong>
+          <span class="muted">({{ q.type }})</span>
+          {% if is_active %}
+            <span class="reveal-badge replies {{ 'on' if state.reveal_free_text else 'off' }}">
+              {{ 'Showing on /present' if state.reveal_free_text else 'Hidden on /present' }}
+            </span>
+            {% if res.type == "multiple_choice" and res.any_correct %}
+              <span class="reveal-badge correct {{ 'on' if state.reveal_correct else 'off' }}">
+                {{ 'Correct shown' if state.reveal_correct else 'Correct hidden' }}
               </span>
-              {% if res.type == "multiple_choice" and res.any_correct %}
-                <span class="reveal-badge correct {{ 'on' if state.reveal_correct else 'off' }}">
-                  {{ 'Correct shown' if state.reveal_correct else 'Correct hidden' }}
-                </span>
-              {% endif %}
             {% endif %}
-            <form method="post" action="/admin/activate" class="inline">
-              <input type="hidden" name="qid" value="{{ q.id }}">
-              <button type="submit">{% if is_displayed %}Showing{% elif is_answering %}Answering{% else %}Activate{% endif %}</button>
-            </form>
-          </div>
-          <div class="q-results" data-qid="{{ q.id }}">
-            {% if res.type == "multiple_choice" %}
-              {% set show_correct = state.reveal_correct and is_answering and res.any_correct %}
-              {% if res.total %}
-                {% for opt in res.options %}
-                  {% set bar_cls = 'bar' + (' correct' if show_correct and opt.is_correct else (' dimmed' if show_correct else '')) %}
-                  <div class="{{ bar_cls }}">
-                    <div class="bar-label">{{ opt.label }}</div>
-                    <div class="bar-fill" style="width: {{ opt.pct }}%"></div>
-                    <div class="bar-count">{{ opt.count }} · {{ opt.pct }}%</div>
-                  </div>
-                {% endfor %}
-              {% endif %}
-              <p class="muted">{{ res.total }} response{{ '' if res.total == 1 else 's' }}</p>
-            {% elif res.type == "rating" %}
-              {% if res.total %}
-                {% for b in res.buckets %}
-                  <div class="bar">
-                    <div class="bar-label">{{ b.step }}{% if b.step == 1 %} <span class="muted">({{ res.low_label }})</span>{% elif b.step == res.steps %} <span class="muted">({{ res.high_label }})</span>{% endif %}</div>
-                    <div class="bar-fill" style="width: {{ b.pct }}%"></div>
-                    <div class="bar-count">{{ b.count }} · {{ b.pct }}%</div>
-                  </div>
-                {% endfor %}
-              {% endif %}
-              <p class="muted">{{ res.total }} response{{ '' if res.total == 1 else 's' }}{% if res.average is not none %} · avg {{ res.average }}{% endif %}</p>
-            {% else %}
-              <p class="muted">{{ res.total }} response{{ '' if res.total == 1 else 's' }}</p>
-              {% if res.answers %}
-                <ul class="free-text-list">
-                  {% for ans in res.answers %}
-                    <li class="{% if ans.approved %}approved{% endif %}">
-                      <span class="answer-text">{{ ans.answer }}</span>
+          {% endif %}
+          <form method="post" action="/admin/activate" class="inline">
+            <input type="hidden" name="qid" value="{{ q.id }}">
+            <button type="submit">{% if is_active %}Open{% else %}Activate{% endif %}</button>
+          </form>
+        </div>
+        <div class="q-results" data-qid="{{ q.id }}">
+          {% if res.type == "multiple_choice" %}
+            {% set show_correct = state.reveal_correct and is_active and res.any_correct %}
+            {% if res.total %}
+              {% for opt in res.options %}
+                {% set bar_cls = 'bar' + (' correct' if show_correct and opt.is_correct else (' dimmed' if show_correct else '')) %}
+                <div class="{{ bar_cls }}">
+                  <div class="bar-label">{{ opt.label }}</div>
+                  <div class="bar-fill" style="width: {{ opt.pct }}%"></div>
+                  <div class="bar-count">{{ opt.count }} · {{ opt.pct }}%</div>
+                </div>
+              {% endfor %}
+            {% endif %}
+            <p class="muted">{{ res.total }} response{{ '' if res.total == 1 else 's' }}</p>
+          {% elif res.type == "rating" %}
+            {% if res.total %}
+              {% for b in res.buckets %}
+                <div class="bar">
+                  <div class="bar-label">{{ b.step }}{% if b.step == 1 %} <span class="muted">({{ res.low_label }})</span>{% elif b.step == res.steps %} <span class="muted">({{ res.high_label }})</span>{% endif %}</div>
+                  <div class="bar-fill" style="width: {{ b.pct }}%"></div>
+                  <div class="bar-count">{{ b.count }} · {{ b.pct }}%</div>
+                </div>
+              {% endfor %}
+            {% endif %}
+            <p class="muted">{{ res.total }} response{{ '' if res.total == 1 else 's' }}{% if res.average is not none %} · avg {{ res.average }}{% endif %}</p>
+          {% else %}
+            <p class="muted">{{ res.total }} response{{ '' if res.total == 1 else 's' }}</p>
+            {% if res.answers %}
+              <ul class="free-text-list">
+                {% for ans in res.answers %}
+                  <li class="{% if ans.rejected %}rejected{% elif ans.approved %}approved{% endif %}">
+                    <span class="answer-text">{{ ans.answer }}</span>
+                    {# The x crosses one out so "approve all" skips it. #}
+                    <form method="post" action="/admin/reject" class="inline">
+                      <input type="hidden" name="qid" value="{{ q.id }}">
+                      <input type="hidden" name="rid" value="{{ ans.id }}">
+                      <input type="hidden" name="rejected" value="{{ '0' if ans.rejected else '1' }}">
+                      <button type="submit" class="reject-btn"
+                              title="{{ 'Put this answer back' if ans.rejected else 'Cross this answer out' }}">
+                        {{ '↺' if ans.rejected else '✕' }}
+                      </button>
+                    </form>
+                    {% if not ans.rejected %}
                       <form method="post" action="/admin/approve" class="inline">
                         <input type="hidden" name="qid" value="{{ q.id }}">
                         <input type="hidden" name="rid" value="{{ ans.id }}">
                         <input type="hidden" name="approved" value="{{ '0' if ans.approved else '1' }}">
                         <button type="submit">{% if ans.approved %}Unapprove{% else %}Approve{% endif %}</button>
                       </form>
-                    </li>
-                  {% endfor %}
-                </ul>
-              {% endif %}
+                    {% endif %}
+                  </li>
+                {% endfor %}
+              </ul>
             {% endif %}
-          </div>
-        </li>
-      {% else %}
-        {# Content slide: a thin stripe so the presenter can see deck
-           structure at a glance. Click to jump to it on /present. #}
-        <li class="slide-item content-stripe{% if is_displayed %} active{% endif %}" data-slide-index="{{ loop.index0 }}">
-          <span class="content-stripe-icon" aria-hidden="true">▤</span>
-          <span class="content-stripe-num">{{ loop.index }}.</span>
-          <span class="content-stripe-source">{{ slide.source }}</span>
-          <form method="post" action="/admin/activate_slide" class="inline">
-            <input type="hidden" name="slide_index" value="{{ loop.index0 }}">
-            <button type="submit">{% if is_displayed %}Showing{% else %}Show{% endif %}</button>
-          </form>
-        </li>
-      {% endif %}
+          {% endif %}
+        </div>
+      </li>
     {% endfor %}
   </ol>
 </section>

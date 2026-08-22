@@ -1,0 +1,11 @@
+/* EDITORIAL — cream paper, serif body, warm rust accent. */
+:root {
+  --theme-bg:       #f8f4ec;
+  --theme-fg:       #1a1612;
+  --theme-muted:    #6c6253;
+  --theme-accent:   #a8341c;
+  --theme-panel:    #efe6d2;
+  --theme-border:   #d5c9b0;
+  --theme-font:     Georgia, "Iowan Old Style", "Palatino Linotype", Palatino, serif;
+  --theme-font-headings: var(--theme-font);
+}

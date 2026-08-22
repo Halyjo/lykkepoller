@@ -300,31 +300,41 @@ function renderRatingBars(r) {
 }
 
 function renderFreeTextList(r, qid) {
+  // Must stay in step with the same block in admin.html -- both render the
+  // moderation list, one on load and one on every poll.
   let html = `<p class="muted">${r.total} response${r.total === 1 ? "" : "s"}</p>`;
   if (r.answers.length) {
     html += '<ul class="free-text-list">';
     for (const a of r.answers) {
-      const newApproved = a.approved ? "0" : "1";
-      const action = a.approved ? "Unapprove" : "Approve";
-      const cls = a.approved ? "approved" : "";
+      const cls = a.rejected ? "rejected" : a.approved ? "approved" : "";
+      const hidden =
+        `<input type="hidden" name="qid" value="${escapeHtml(qid)}">` +
+        `<input type="hidden" name="rid" value="${a.id}">`;
       html +=
         `<li class="${cls}">` +
         `<span class="answer-text">${escapeHtml(a.answer)}</span>` +
-        `<form method="post" action="/admin/approve" class="inline">` +
-        `<input type="hidden" name="qid" value="${escapeHtml(qid)}">` +
-        `<input type="hidden" name="rid" value="${a.id}">` +
-        `<input type="hidden" name="approved" value="${newApproved}">` +
-        `<button type="submit">${action}</button>` +
-        `</form>` +
-        `</li>`;
+        `<form method="post" action="/admin/reject" class="inline">` +
+        hidden +
+        `<input type="hidden" name="rejected" value="${a.rejected ? "0" : "1"}">` +
+        `<button type="submit" class="reject-btn" title="${
+          a.rejected ? "Put this answer back" : "Cross this answer out"
+        }">${a.rejected ? "\u21ba" : "\u2715"}</button>` +
+        `</form>`;
+      if (!a.rejected) {
+        html +=
+          `<form method="post" action="/admin/approve" class="inline">` +
+          hidden +
+          `<input type="hidden" name="approved" value="${a.approved ? "0" : "1"}">` +
+          `<button type="submit">${a.approved ? "Unapprove" : "Approve"}</button>` +
+          `</form>`;
+      }
+      html += `</li>`;
     }
     html += "</ul>";
   }
   return html;
 }
 
-// CSS.escape isn't available everywhere; quick fallback for our use (ids are
-// well-behaved YAML keys, but be defensive).
 function cssEscape(s) {
   if (window.CSS && CSS.escape) return CSS.escape(s);
   return String(s).replace(/(["\\])/g, "\\$1");
@@ -420,11 +430,11 @@ function renderRatingPresent(r, reveal) {
 function renderFreeTextPresent(r, reveal) {
   let html = `<p class="big">${r.total} response${r.total === 1 ? "" : "s"} received</p>`;
   if (reveal && r.approved_answers && r.approved_answers.length) {
-    html += '<ul class="present-free-text">';
+    html += '<div class="answer-cards">';
     for (const a of r.approved_answers) {
-      html += `<li>${escapeHtml(a.answer)}</li>`;
+      html += `<blockquote class="answer-card">${escapeHtml(a.answer)}</blockquote>`;
     }
-    html += "</ul>";
+    html += "</div>";
   }
   return html;
 }

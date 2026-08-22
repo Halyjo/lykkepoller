@@ -4,37 +4,23 @@ import secrets
 from pathlib import Path
 
 from fastapi import FastAPI, Form, HTTPException, Request, Response
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from . import db as db_module
 from . import exports as exports_mod
 from . import qr as qr_mod
-from . import questions as questions_mod
+from . import quiz as quiz_mod
 
 PACKAGE_DIR = Path(__file__).parent
 TEMPLATES = Jinja2Templates(directory=str(PACKAGE_DIR / "templates"))
 
-# File types /talk/* will serve out of the talk directory. It is an allowlist,
-# not a denylist, because the talk directory also holds talk.yaml -- which
-# names the correct multiple-choice options and every question that has not
-# been asked yet. Serving the directory wholesale would hand that to any
-# participant who typed /talk/talk.yaml.
-TALK_ASSET_SUFFIXES = {
-    ".css",
-    ".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp", ".avif",
-    ".woff", ".woff2", ".ttf", ".otf",
-    ".mp4", ".webm", ".mov",
-    ".pdf",
-}
 
-
-def _has_per_talk_theme(talk_root: Path | None) -> bool:
-    """True if the talk directory ships a theme.css we should link from /present."""
-    if talk_root is None:
-        return False
-    return (talk_root / "theme.css").is_file()
+def _one_based(index: int | None) -> int:
+    """Question position for display ("3 / 12"). None (idle) shows as 1; the
+    counter is hidden in that state anyway."""
+    return 1 if index is None else index + 1
 
 
 def create_app(*, db_path: Path) -> FastAPI:
@@ -68,13 +54,6 @@ def create_app(*, db_path: Path) -> FastAPI:
         name="static",
     )
 
-    # Per-talk asset directory: slide HTML can reference images, fonts and
-    # theme CSS relative to the talk. Served by the /talk/{path} route below,
-    # which only hands out the file types in TALK_ASSET_SUFFIXES. None when
-    # the session has no talk directory on disk.
-    talk_dir = session.get("talk_dir")
-    talk_root = Path(talk_dir).resolve() if talk_dir and Path(talk_dir).is_dir() else None
-
     # --- helpers --------------------------------------------------------------
 
     def current_session() -> dict:
@@ -86,31 +65,11 @@ def create_app(*, db_path: Path) -> FastAPI:
         return db_module.get_state(conn, app.state.session_id)
 
     def phase_of(state: dict) -> str:
-        """Phase as seen by participants and the IDLE/ACTIVE/ENDED admin badge.
-
-        Driven by the active question alone, not by the slide on screen. A
-        question stays open while the presenter walks through the discussion
-        slides that follow it, so phones keep the answer form up instead of
-        snapping back to the waiting screen mid-answer.
-        """
+        """IDLE / ACTIVE / ENDED, as seen by participants, /present and the
+        /admin badge."""
         if state["ended"]:
             return "ended"
         if state["active_question_id"]:
-            return "active"
-        return "idle"
-
-    def present_phase_of(state: dict) -> str:
-        """Phase as rendered on /present. Distinguishes content slides from
-        the IDLE state (which shows the big QR) so the template can render
-        the content slide HTML instead.
-
-        An active question with no slide index also counts as active, so
-        a question that somehow has no slide of its own still shows up on
-        the projector rather than falling back to the QR screen.
-        """
-        if state["ended"]:
-            return "ended"
-        if state.get("active_slide_index") is not None or state["active_question_id"]:
             return "active"
         return "idle"
 
@@ -145,17 +104,37 @@ def create_app(*, db_path: Path) -> FastAPI:
             max_age=60 * 60 * 24,
         )
 
-    def prev_slide_index(current: int | None) -> int | None:
-        """Step back one slide. None when nothing is active (no-op) or already
-        at slide 0."""
+    def activate(sess: dict, qid: str) -> None:
+        """Open a question. Free text opens with its result panel already
+        revealed -- nothing is approved yet, so there is nothing to leak, and
+        the presenter wants approved answers to appear as they tick them off.
+        Multiple choice and rating open hidden, so the room cannot see which
+        way the vote is going and follow it."""
+        q = quiz_mod.find_question(sess["questions"], qid)
+        is_free_text = q is not None and q["type"] == "free_text"
+        db_module.set_active_question(conn, sess["id"], qid, reveal_free_text=is_free_text)
+
+    def question_index(sess: dict, state: dict) -> int | None:
+        """Where in the deck we are: the position of the active question, or
+        None when idle."""
+        qid = state["active_question_id"]
+        if qid is None:
+            return None
+        for i, q in enumerate(sess["questions"]):
+            if q["id"] == qid:
+                return i
+        return None
+
+    def prev_index(current: int | None) -> int | None:
+        """Step back one. None when nothing is active (no-op) or already first."""
         if current is None or current <= 0:
             return None
         return current - 1
 
-    def next_slide_index(slides: list[dict], current: int | None) -> int | None:
-        """Step forward one slide. Returns None to mean 'past the last
-        slide -- end the session'."""
-        n = len(slides)
+    def next_index(questions: list[dict], current: int | None) -> int | None:
+        """Step forward one. Returns None to mean 'past the last question --
+        end the session'."""
+        n = len(questions)
         if n == 0:
             return None
         if current is None:
@@ -163,34 +142,6 @@ def create_app(*, db_path: Path) -> FastAPI:
         if current + 1 < n:
             return current + 1
         return None
-
-    def active_slide_for(sess: dict, state: dict) -> dict | None:
-        """Return the slide entry currently active on /present (or None when
-        idle/ended)."""
-        i = state.get("active_slide_index")
-        if i is None:
-            return None
-        slides = sess["slides"]
-        if 0 <= i < len(slides):
-            return slides[i]
-        return None
-
-    def activate_slide(sess: dict, slide_index: int) -> None:
-        """Drive the state machine to the given slide.
-
-        Question slides reset the reveal flags and set active_question_id.
-        Content slides leave the prior question (and any reveal state) in
-        place, so the participant page does not snap back to "waiting"
-        mid-answer when the presenter advances to a discussion slide.
-        """
-        slides = sess["slides"]
-        slide = slides[slide_index]
-        if slide["type"] == "question":
-            db_module.set_active_slide_question(
-                conn, sess["id"], slide_index, slide["question_id"]
-            )
-        else:
-            db_module.set_active_slide_content(conn, sess["id"], slide_index)
 
     def compute_base_url(request: Request) -> tuple[str, str]:
         """Return (base_url, source) for the public-facing URL.
@@ -295,8 +246,14 @@ def create_app(*, db_path: Path) -> FastAPI:
         else:
             rows = db_module.list_text_responses(conn, sid, qid)
             approved_ids = {a["id"] for a in db_module.list_approved_free_text(conn, sid, qid)}
+            rejected_ids = db_module.list_rejected_ids(conn, sid, qid)
             answers = [
-                {"id": r["id"], "answer": r["answer"], "approved": r["id"] in approved_ids}
+                {
+                    "id": r["id"],
+                    "answer": r["answer"],
+                    "approved": r["id"] in approved_ids,
+                    "rejected": r["id"] in rejected_ids,
+                }
                 for r in rows
             ]
             # Note: keys named "items"/"keys"/"values" collide with dict builtin
@@ -310,25 +267,6 @@ def create_app(*, db_path: Path) -> FastAPI:
             }
 
     # --- public routes --------------------------------------------------------
-
-    @app.get("/talk/{asset_path:path}", include_in_schema=False)
-    async def talk_asset(asset_path: str):
-        """Serve one slide asset out of the talk directory.
-
-        Two things are checked: the resolved path must stay inside the talk
-        directory (no ../ escape) and its extension must be in
-        TALK_ASSET_SUFFIXES (no talk.yaml, no .sqlite, no stray notes).
-        """
-        if talk_root is None:
-            raise HTTPException(status_code=404)
-        full = (talk_root / asset_path).resolve()
-        try:
-            full.relative_to(talk_root)
-        except ValueError:
-            raise HTTPException(status_code=404)
-        if full.suffix.lower() not in TALK_ASSET_SUFFIXES or not full.is_file():
-            raise HTTPException(status_code=404)
-        return FileResponse(full)
 
     @app.get("/", include_in_schema=False)
     async def root():
@@ -346,7 +284,7 @@ def create_app(*, db_path: Path) -> FastAPI:
         sess = current_session()
         state = current_state()
         active_q = (
-            questions_mod.find_question(sess["questions"], state["active_question_id"])
+            quiz_mod.find_question(sess["questions"], state["active_question_id"])
             if state["active_question_id"]
             else None
         )
@@ -384,7 +322,7 @@ def create_app(*, db_path: Path) -> FastAPI:
         # The participant page polls and re-renders; a stale submit usually means
         # the presenter just moved on, and the participant page is about to update.
         if state["active_question_id"] == question_id:
-            q = questions_mod.find_question(sess["questions"], question_id)
+            q = quiz_mod.find_question(sess["questions"], question_id)
             if q is not None:
                 if q["type"] == "multiple_choice":
                     valid = {o["id"] for o in q.get("options", [])}
@@ -432,12 +370,11 @@ def create_app(*, db_path: Path) -> FastAPI:
         sess = current_session()
         state = current_state()
         active_q = (
-            questions_mod.find_question(sess["questions"], state["active_question_id"])
+            quiz_mod.find_question(sess["questions"], state["active_question_id"])
             if state["active_question_id"]
             else None
         )
         active_results = compute_results(active_q) if active_q else None
-        active_slide = active_slide_for(sess, state)
         base, _ = compute_base_url(request)
         join_url = base + f"/join/{sess['id']}"
         qr_url = base + "/qr.png"
@@ -447,12 +384,11 @@ def create_app(*, db_path: Path) -> FastAPI:
             "present.html",
             {
                 "title": sess["title"],
-                "phase": present_phase_of(state),
+                "phase": phase_of(state),
                 "active_question": active_q,
                 "active_results": active_results,
-                "active_slide": active_slide,
-                "active_slide_index": state["active_slide_index"],
-                "slide_count": len(sess["slides"]),
+                "question_number": _one_based(question_index(sess, state)),
+                "question_count": len(sess["questions"]),
                 "reveal_free_text": state["reveal_free_text"],
                 "reveal_correct": state["reveal_correct"],
                 "join_url": join_url,
@@ -464,7 +400,7 @@ def create_app(*, db_path: Path) -> FastAPI:
                     if state["active_question_id"]
                     else 0
                 ),
-                "has_theme_css": _has_per_talk_theme(talk_root),
+                "theme": sess["theme"],
             },
         )
 
@@ -489,17 +425,12 @@ def create_app(*, db_path: Path) -> FastAPI:
         join_url = base + f"/join/{sess['id']}"
         results = {q["id"]: compute_results(q) for q in sess["questions"]}
         active_id = state["active_question_id"]
-        # Build a question-by-id lookup so the slide loop can pull each
-        # question's full data without an O(slides * questions) walk.
-        questions_by_id = {q["id"]: q for q in sess["questions"]}
         return TEMPLATES.TemplateResponse(
             request,
             "admin.html",
             {
                 "title": sess["title"],
                 "questions": sess["questions"],
-                "questions_by_id": questions_by_id,
-                "slides": sess["slides"],
                 "session_id": sess["id"],
                 "state": state,
                 "join_url": join_url,
@@ -519,27 +450,8 @@ def create_app(*, db_path: Path) -> FastAPI:
     async def admin_activate(request: Request, qid: str = Form(...)):
         require_admin(request)
         sess = current_session()
-        if questions_mod.find_question(sess["questions"], qid) is not None:
-            # Jump to whichever slide carries this question, so /present
-            # follows along and the deck position stays consistent.
-            i = questions_mod.slide_index_for_question(sess["slides"], qid)
-            if i is not None:
-                activate_slide(sess, i)
-            else:
-                # Every question loaded from YAML gets a slide, so this
-                # only fires on a hand-edited database. Defensive only.
-                db_module.set_active_question(conn, sess["id"], qid)
-        return RedirectResponse("/admin", status_code=303)
-
-    @app.post("/admin/activate_slide")
-    async def admin_activate_slide(request: Request, slide_index: int = Form(...)):
-        # Used by the /admin slide stripes so the presenter can jump to a
-        # specific content slide. For question slides this is equivalent to
-        # /admin/activate; the dedicated endpoint just keeps the form simple.
-        require_admin(request)
-        sess = current_session()
-        if 0 <= slide_index < len(sess["slides"]):
-            activate_slide(sess, slide_index)
+        if quiz_mod.find_question(sess["questions"], qid) is not None:
+            activate(sess, qid)
         return RedirectResponse("/admin", status_code=303)
 
     @app.post("/admin/clear")
@@ -559,12 +471,12 @@ def create_app(*, db_path: Path) -> FastAPI:
         require_admin(request)
         sess = current_session()
         state = current_state()
-        target = next_slide_index(sess["slides"], state["active_slide_index"])
+        target = next_index(sess["questions"], question_index(sess, state))
         if target is None:
-            # Past the last slide -- end the session.
+            # Past the last question -- end the session.
             db_module.end_session(conn, sess["id"])
         else:
-            activate_slide(sess, target)
+            activate(sess, sess["questions"][target]["id"])
         return RedirectResponse("/admin", status_code=303)
 
     @app.post("/admin/prev")
@@ -572,9 +484,9 @@ def create_app(*, db_path: Path) -> FastAPI:
         require_admin(request)
         sess = current_session()
         state = current_state()
-        target = prev_slide_index(state["active_slide_index"])
+        target = prev_index(question_index(sess, state))
         if target is not None:
-            activate_slide(sess, target)
+            activate(sess, sess["questions"][target]["id"])
         return RedirectResponse("/admin", status_code=303)
 
     @app.post("/admin/reveal")
@@ -605,6 +517,20 @@ def create_app(*, db_path: Path) -> FastAPI:
             db_module.unapprove_free_text(conn, app.state.session_id, qid, rid)
         return RedirectResponse("/admin", status_code=303)
 
+    @app.post("/admin/reject")
+    async def admin_reject(
+        request: Request,
+        qid: str = Form(...),
+        rid: int = Form(...),
+        rejected: str = Form(...),
+    ):
+        require_admin(request)
+        if rejected == "1":
+            db_module.reject_free_text(conn, app.state.session_id, qid, rid)
+        else:
+            db_module.unreject_free_text(conn, app.state.session_id, qid, rid)
+        return RedirectResponse("/admin", status_code=303)
+
     @app.post("/admin/approve_all")
     async def admin_approve_all(request: Request):
         # Bulk-approve every response for the active free-text question. The
@@ -616,7 +542,7 @@ def create_app(*, db_path: Path) -> FastAPI:
         qid = state["active_question_id"]
         if qid:
             sess = current_session()
-            q = questions_mod.find_question(sess["questions"], qid)
+            q = quiz_mod.find_question(sess["questions"], qid)
             if q is not None and q["type"] == "free_text":
                 db_module.approve_all_existing_free_text(conn, sess["id"], qid)
         return RedirectResponse("/admin", status_code=303)
@@ -673,7 +599,7 @@ def create_app(*, db_path: Path) -> FastAPI:
         state = current_state()
         db_module.heartbeat(conn, sess["id"], pid)
         active_q = (
-            questions_mod.find_question(sess["questions"], state["active_question_id"])
+            quiz_mod.find_question(sess["questions"], state["active_question_id"])
             if state["active_question_id"]
             else None
         )
@@ -698,7 +624,6 @@ def create_app(*, db_path: Path) -> FastAPI:
         return {
             "phase": phase_of(state),
             "active_question_id": active_id,
-            "active_slide_index": state["active_slide_index"],
             "ended": state["ended"],
             "reveal_free_text": state["reveal_free_text"],
             "reveal_correct": state["reveal_correct"],
@@ -714,17 +639,11 @@ def create_app(*, db_path: Path) -> FastAPI:
         sess = current_session()
         state = current_state()
         active_id = state["active_question_id"]
-        active_q = questions_mod.find_question(sess["questions"], active_id) if active_id else None
-        active_slide = active_slide_for(sess, state)
-        # Hint to the client whether the rendered HTML structure changed (slide
-        # boundary crossed). When this changes the page reloads to pick up the
-        # new slide template; counts/results updates do not trigger a reload.
+        active_q = quiz_mod.find_question(sess["questions"], active_id) if active_id else None
         return {
-            "phase": present_phase_of(state),
+            "phase": phase_of(state),
             "active_question": active_q,
             "active_results": compute_results(active_q) if active_q else None,
-            "active_slide_index": state["active_slide_index"],
-            "active_slide_kind": active_slide["type"] if active_slide else None,
             "reveal_free_text": state["reveal_free_text"],
             "reveal_correct": state["reveal_correct"],
             "connected_count": db_module.count_connected(conn, sess["id"]),

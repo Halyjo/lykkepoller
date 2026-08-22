@@ -414,7 +414,7 @@ def test_qr_png_is_an_image(app_client):
 
 
 def test_qr_png_also_written_next_to_the_database(app_client):
-    """The file copy is for pasting into a slide. It goes beside the session
+    """The file copy is for pasting into a slide deck. It goes beside the session
     DB, not into whatever directory the presenter started the app from."""
     app_client.get("/qr.png")
     qr_file = app_client.app.state.db_path.with_suffix(".qr.png")
@@ -462,7 +462,8 @@ def test_api_present_state_includes_active_results(app_client):
     assert p["phase"] == "active"
     assert p["active_question"]["id"] == "q2"
     assert p["active_results"]["total"] == 1
-    assert p["reveal_free_text"] is False
+    # q2 is free text, which opens revealed -- see test_free_text_opens_revealed.
+    assert p["reveal_free_text"] is True
 
 
 def test_admin_override_sets_public_url(app_client):
@@ -624,15 +625,13 @@ def test_admin_approve_all_requires_admin(app_client):
     assert r.status_code == 401
 
 
-def test_session_records_source_yaml_filename(app_client, tmp_path):
-    # Reopen the DB directly to verify the column was populated by the
-    # fixture's create_session() call (which intentionally does not pass one,
-    # so the field is None here -- this just shows the field exists).
+def test_session_records_source_and_theme(app_client):
     from lykkepoller import db as dbm
 
     c = dbm.connect(app_client.app.state.db_path)
     s = dbm.get_session(c)
-    assert "source_yaml_filename" in s
+    assert "source_filename" in s
+    assert s["theme"] == "plain"
     c.close()
 
 
@@ -722,197 +721,115 @@ def test_rating_average_computed(app_client):
     assert res["average"] == 3.0
 
 
-# --- slides / mixed content+question deck (feat/basic-presentation-support) -
+# --- free-text moderation -----------------------------------------------------
 
 
-def make_slides_session(tmp_path: Path):
-    """A session with 3 content slides and 2 question slides, in mixed order."""
-    talk_dir = tmp_path / "talk"
-    talk_dir.mkdir()
-    (talk_dir / "intro.html").write_text("<h1>Welcome</h1>")
-    (talk_dir / "discussion.html").write_text("<h2>Discussion slide</h2>")
-    (talk_dir / "outro.html").write_text("<h1>Thanks</h1>")
-    (talk_dir / "theme.css").write_text(":root { --slide-accent: #123456; }")
-    (talk_dir / "images").mkdir()
-    (talk_dir / "images" / "example.png").write_bytes(b"\x89PNG\r\n\x1a\nfake")
-    # The real thing sits next to the slides: it names the correct options.
-    (talk_dir / "talk.yaml").write_text("title: Demo\nslides: []\n")
-    qs = [
-        {
-            "id": "q1",
-            "type": "multiple_choice",
-            "prompt": "Pick a color",
-            "options": [{"id": "r", "label": "red"}, {"id": "b", "label": "blue"}],
-        },
-        {"id": "q2", "type": "free_text", "prompt": "Why?"},
-    ]
-    slides = [
-        {"type": "content", "source": "intro.html", "html": "<h1>Welcome</h1>"},
-        {"type": "question", "question_id": "q1"},
-        {"type": "content", "source": "discussion.html", "html": "<h2>Discussion slide</h2>"},
-        {"type": "question", "question_id": "q2"},
-        {"type": "content", "source": "outro.html", "html": "<h1>Thanks</h1>"},
-    ]
-    p = tmp_path / "s.sqlite"
-    c = db.connect(p)
-    db.init_schema(c)
-    db.create_session(
-        c,
-        "blue-otter-1234",
-        "Demo",
-        qs,
-        "secret",
-        slides=slides,
-        talk_dir=str(talk_dir),
-    )
-    c.close()
-    return p, talk_dir
+def test_free_text_opens_revealed(app_client):
+    """Nothing is approved yet, so there is nothing to leak -- and the
+    presenter wants approved answers to appear as they tick them off."""
+    admin(app_client)
+    app_client.post("/admin/activate", data={"qid": "q2"})
+    assert app_client.get("/api/admin/state").json()["reveal_free_text"] is True
 
 
-@pytest.fixture
-def slides_client(tmp_path: Path):
-    p, _ = make_slides_session(tmp_path)
-    a = app_module.create_app(db_path=p)
-    return TestClient(a, follow_redirects=False)
+def test_multiple_choice_opens_hidden(app_client):
+    """The opposite: showing bars early lets the room see the leader and
+    follow it."""
+    admin(app_client)
+    app_client.post("/admin/activate", data={"qid": "q1"})
+    assert app_client.get("/api/admin/state").json()["reveal_free_text"] is False
 
 
-def test_slides_next_walks_content_and_questions(slides_client):
-    """/admin/next should advance through slides. A question slide sets
-    active_question_id; a content slide preserves whatever question was
-    active before (so the participant page stays on the question while the
-    presenter discusses it on a content slide)."""
-    admin(slides_client)
-    # slide 0: content (no prior question -- starts at None and stays None)
-    slides_client.post("/admin/next")
-    assert slides_client.get("/api/admin/state").json()["active_question_id"] is None
-
-    # slide 1: question q1
-    slides_client.post("/admin/next")
-    assert slides_client.get("/api/admin/state").json()["active_question_id"] == "q1"
-
-    # slide 2: content -- q1 stays active (audience can keep answering)
-    slides_client.post("/admin/next")
-    assert slides_client.get("/api/admin/state").json()["active_question_id"] == "q1"
-
-    # slide 3: question q2 (replaces q1)
-    slides_client.post("/admin/next")
-    assert slides_client.get("/api/admin/state").json()["active_question_id"] == "q2"
-
-    # slide 4: content -- q2 stays
-    slides_client.post("/admin/next")
-    assert slides_client.get("/api/admin/state").json()["active_question_id"] == "q2"
-
-    # past last: ends session (which also clears active_question_id)
-    slides_client.post("/admin/next")
-    s = slides_client.get("/api/admin/state").json()
-    assert s["phase"] == "ended"
-    assert s["active_question_id"] is None
+def test_rating_opens_hidden(app_client):
+    admin(app_client)
+    app_client.post("/admin/activate", data={"qid": "qr"})
+    assert app_client.get("/api/admin/state").json()["reveal_free_text"] is False
 
 
-def test_slides_clear_resets_question_and_slide(slides_client):
-    """Esc / clear explicitly closes out a question even when the presenter
-    is on a content slide. Both indexes drop, no slide is active."""
-    admin(slides_client)
-    slides_client.post("/admin/next")  # content
-    slides_client.post("/admin/next")  # q1
-    slides_client.post("/admin/next")  # content (q1 still active)
-    assert slides_client.get("/api/admin/state").json()["active_question_id"] == "q1"
-    slides_client.post("/admin/clear")
-    s = slides_client.get("/api/admin/state").json()
-    assert s["active_question_id"] is None
-    assert s["phase"] == "idle"
+def test_moving_between_types_flips_the_default(app_client):
+    admin(app_client)
+    app_client.post("/admin/activate", data={"qid": "q2"})
+    assert app_client.get("/api/admin/state").json()["reveal_free_text"] is True
+    app_client.post("/admin/activate", data={"qid": "q1"})
+    assert app_client.get("/api/admin/state").json()["reveal_free_text"] is False
 
 
-def test_slides_present_renders_content_html(slides_client):
-    admin(slides_client)
-    # advance to the first content slide
-    slides_client.post("/admin/next")
-    r = slides_client.get("/present")
-    assert r.status_code == 200
-    assert "<h1>Welcome</h1>" in r.text
-    # slide counter shows position
-    assert "1 / 5" in r.text
+def _answers(client, qid="q2"):
+    return client.get("/api/admin/state").json()["results"][qid]["answers"]
 
 
-def test_slides_activate_by_qid_jumps_to_slide(slides_client):
-    """POST /admin/activate with qid should land on the slide that carries
-    the question (so /present follows along)."""
-    admin(slides_client)
-    slides_client.post("/admin/activate", data={"qid": "q2"})
-    s = slides_client.get("/api/present/state").json()
-    assert s["active_slide_index"] == 3
-    assert s["active_slide_kind"] == "question"
+def test_reject_marks_the_answer(app_client):
+    admin(app_client)
+    app_client.post("/admin/activate", data={"qid": "q2"})
+    submit(app_client, "q2", "rubbish", "p-alice")
+    rid = _answers(app_client)[0]["id"]
+    app_client.post("/admin/reject", data={"qid": "q2", "rid": rid, "rejected": "1"})
+    assert _answers(app_client)[0]["rejected"] is True
 
 
-def test_slides_talk_assets_served(slides_client):
-    """Slide assets -- images, fonts, theme CSS -- are reachable at /talk/."""
-    assert slides_client.get("/talk/images/example.png").status_code == 200
-    r = slides_client.get("/talk/theme.css")
-    assert r.status_code == 200
-    assert "--slide-accent" in r.text
+def test_approve_all_skips_rejected(app_client):
+    """The point of the x: cross out the bad ones, then take the rest in one press."""
+    admin(app_client)
+    app_client.post("/admin/activate", data={"qid": "q2"})
+    submit(app_client, "q2", "good one", "p-alice")
+    submit(app_client, "q2", "rubbish", "p-bob")
+    submit(app_client, "q2", "also good", "p-carol")
+    bad = next(a["id"] for a in _answers(app_client) if a["answer"] == "rubbish")
+    app_client.post("/admin/reject", data={"qid": "q2", "rid": bad, "rejected": "1"})
+    app_client.post("/admin/approve_all")
+    got = {a["answer"]: a["approved"] for a in _answers(app_client)}
+    assert got == {"good one": True, "rubbish": False, "also good": True}
 
 
-def test_talk_yaml_is_not_served(slides_client):
-    """The question file lives in the talk directory and names the correct
-    options. Anyone can reach /talk/, so it must not be served."""
-    assert slides_client.get("/talk/talk.yaml").status_code == 404
-    # Nor the slide sources, nor anything else without an asset extension.
-    assert slides_client.get("/talk/intro.html").status_code == 404
+def test_rejecting_an_approved_answer_unapproves_it(app_client):
+    """The x always wins -- the presenter clicking it wants that off the
+    projector now, not after another click."""
+    admin(app_client)
+    app_client.post("/admin/activate", data={"qid": "q2"})
+    submit(app_client, "q2", "oops", "p-alice")
+    rid = _answers(app_client)[0]["id"]
+    app_client.post("/admin/approve", data={"qid": "q2", "rid": rid, "approved": "1"})
+    assert _answers(app_client)[0]["approved"] is True
+    app_client.post("/admin/reject", data={"qid": "q2", "rid": rid, "rejected": "1"})
+    a = _answers(app_client)[0]
+    assert (a["approved"], a["rejected"]) == (False, True)
 
 
-def test_talk_path_cannot_escape_the_talk_directory(slides_client):
-    # Percent-encoded so httpx does not collapse the ".." before sending it,
-    # which is what makes this reach the route's own guard.
-    assert slides_client.get("/talk/%2e%2e/%2e%2e/etc/passwd").status_code == 404
-    assert slides_client.get("/talk/images/%2e%2e/talk.yaml").status_code == 404
+def test_unreject_puts_it_back_in_the_running(app_client):
+    admin(app_client)
+    app_client.post("/admin/activate", data={"qid": "q2"})
+    submit(app_client, "q2", "second thoughts", "p-alice")
+    rid = _answers(app_client)[0]["id"]
+    app_client.post("/admin/reject", data={"qid": "q2", "rid": rid, "rejected": "1"})
+    app_client.post("/admin/reject", data={"qid": "q2", "rid": rid, "rejected": "0"})
+    assert _answers(app_client)[0]["rejected"] is False
+    app_client.post("/admin/approve_all")
+    assert _answers(app_client)[0]["approved"] is True
 
 
-def test_present_links_theme_css_when_the_talk_has_one(slides_client):
-    admin(slides_client)
-    slides_client.post("/admin/next")
-    assert '/talk/theme.css' in slides_client.get("/present").text
+def test_rejected_answer_never_reaches_present(app_client):
+    admin(app_client)
+    app_client.post("/admin/activate", data={"qid": "q2"})
+    submit(app_client, "q2", "keep this", "p-alice")
+    submit(app_client, "q2", "hide this", "p-bob")
+    bad = next(a["id"] for a in _answers(app_client) if a["answer"] == "hide this")
+    app_client.post("/admin/reject", data={"qid": "q2", "rid": bad, "rejected": "1"})
+    app_client.post("/admin/approve_all")
+    body = app_client.get("/present").text
+    assert "keep this" in body
+    assert "hide this" not in body
 
 
-def test_present_shows_a_question_that_has_no_slide(slides_client):
-    """Every question loaded from YAML gets a slide, but a hand-edited
-    database can hold one that does not. Activating it leaves
-    active_slide_index unset -- /present must still put it on the projector
-    rather than falling back to the idle QR screen."""
-    from lykkepoller import db as dbm
-
-    c = dbm.connect(slides_client.app.state.db_path)
-    dbm.set_active_question(c, "blue-otter-1234", "q1")  # no slide index
-    c.close()
-    r = slides_client.get("/present")
-    assert r.status_code == 200
-    assert "Pick a color" in r.text
-    assert slides_client.get("/api/present/state").json()["phase"] == "active"
+def test_present_renders_answers_as_cards(app_client):
+    admin(app_client)
+    app_client.post("/admin/activate", data={"qid": "q2"})
+    submit(app_client, "q2", "an answer", "p-alice")
+    app_client.post("/admin/approve_all")
+    body = app_client.get("/present").text
+    assert 'class="answer-cards"' in body
+    assert 'class="answer-card"' in body
 
 
-def test_slides_present_state_reports_slide_kind(slides_client):
-    admin(slides_client)
-    slides_client.post("/admin/next")  # slide 0 = content
-    s = slides_client.get("/api/present/state").json()
-    assert s["active_slide_kind"] == "content"
-    assert s["active_slide_index"] == 0
-    slides_client.post("/admin/next")  # slide 1 = q1
-    s = slides_client.get("/api/present/state").json()
-    assert s["active_slide_kind"] == "question"
-    assert s["active_slide_index"] == 1
-
-
-def test_legacy_questions_only_session_still_works(tmp_path):
-    """A session created without slides/talk_dir (legacy) gets a synthesized
-    slides list at read time so /admin/next still walks question by question."""
-    p = tmp_path / "s.sqlite"
-    c = db.connect(p)
-    db.init_schema(c)
-    db.create_session(c, "blue-otter-1234", "Demo", make_qs(), "secret")
-    c.close()
-    a = app_module.create_app(db_path=p)
-    client = TestClient(a, follow_redirects=False)
-    admin(client)
-    client.post("/admin/next")
-    assert client.get("/api/admin/state").json()["active_question_id"] == "q1"
-    client.post("/admin/next")
-    assert client.get("/api/admin/state").json()["active_question_id"] == "q2"
+def test_reject_requires_admin(app_client):
+    r = app_client.post("/admin/reject", data={"qid": "q2", "rid": 1, "rejected": "1"})
+    assert r.status_code == 401
