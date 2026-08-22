@@ -3,6 +3,8 @@
 // What this file does, by page:
 //
 //   body.participant
+//     Answering still does a real form POST, unlike /admin: the reload is
+//     wanted there, because it is what re-renders the form as locked.
 //     Polls /api/participant/state every ~1.5s. The poll doubles as a
 //     heartbeat: the server updates participants.last_seen_at so it can
 //     tell the presenter how many phones are currently connected.
@@ -83,12 +85,15 @@ document.addEventListener("DOMContentLoaded", () => {
   if (document.body.classList.contains("participant")) {
     startPolling(pollParticipant);
   } else if (document.body.classList.contains("admin")) {
-    bindAdminShortcuts(startPolling(pollAdmin), {onPresent: false});
+    const refresh = startPolling(pollAdmin);
+    bindAdminShortcuts(refresh, {onPresent: false});
+    bindFormPosts(refresh);
   } else if (document.body.classList.contains("present")) {
     const root = document.getElementById("present-app");
     const refresh = startPolling(pollPresent);
     if (root && root.dataset.admin === "1") {
       bindAdminShortcuts(refresh, {onPresent: true});
+      bindFormPosts(refresh);
     }
   }
 });
@@ -464,6 +469,38 @@ function renderFreeTextPresent(r, reveal) {
     html += "</div>";
   }
   return html;
+}
+
+function bindFormPosts(refresh) {
+  // Every control on /admin is a real <form>, which is what keeps the server
+  // in charge of state. The cost was that clicking one navigated: POST, 303,
+  // full reload, back to the top of the page -- painful when you are
+  // approving the twelfth answer down and the list jumps away from you.
+  //
+  // So send the same form the same way the keyboard shortcuts already do,
+  // with fetch, and let the poll redraw in place. The server still decides
+  // everything; the browser just stops throwing the scroll position away.
+  document.addEventListener("submit", (e) => {
+    const form = e.target;
+    if (!(form instanceof HTMLFormElement)) return;
+    // An inline onsubmit that returned false (the End session confirm) has
+    // already cancelled this. Do not resurrect it.
+    if (e.defaultPrevented) return;
+    if ((form.method || "").toLowerCase() !== "post") return;
+
+    e.preventDefault();
+    fetch(form.action, {method: "POST", body: new FormData(form), credentials: "same-origin"})
+      .then((res) => {
+        // A refused POST -- an expired admin cookie, say -- should be seen,
+        // not swallowed. Let the browser submit it properly and show why.
+        if (!res.ok) {
+          form.submit();
+          return;
+        }
+        return refresh();
+      })
+      .catch(() => form.submit());
+  });
 }
 
 function bindAdminShortcuts(refresh, opts) {

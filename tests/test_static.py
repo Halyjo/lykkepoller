@@ -29,6 +29,29 @@ def test_app_js_polls_every_page_type():
         assert f"startPolling({page})" in src, page
 
 
+def test_admin_forms_post_without_navigating():
+    """Clicking a control used to reload /admin and throw the scroll position
+    away, which hurts most when approving an answer far down the list. Mouse
+    clicks now take the same fetch path the keyboard shortcuts always did."""
+    src = APP_JS.read_text()
+    assert "function bindFormPosts" in src
+    assert "bindFormPosts(refresh)" in src
+    # A cancelled confirm() must not be resurrected, and a refused POST has to
+    # become visible rather than vanish.
+    assert "e.defaultPrevented" in src
+    assert "form.submit()" in src
+
+
+def test_participant_keeps_its_real_submit():
+    """The reload is wanted on a phone: it is what redraws the form as locked."""
+    src = APP_JS.read_text()
+    admin_at = src.index('classList.contains("admin")')
+    admin_branch = src[admin_at:]
+    participant = src[src.index('classList.contains("participant")'):admin_at]
+    assert "bindFormPosts" in admin_branch
+    assert "bindFormPosts" not in participant
+
+
 def test_polling_wakes_on_visibility():
     """The fix for phones that were locked mid-question."""
     src = APP_JS.read_text()
