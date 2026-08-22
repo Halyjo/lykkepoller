@@ -468,6 +468,23 @@ def _line(src: str, m) -> int:
 # --- build --------------------------------------------------------------------
 
 
+def sources():
+    """Every file the scanners read. Also what staleness is measured against,
+    so the two can never disagree about what the graph covers."""
+    yield from PKG.glob("*.py")
+    yield from (ROOT / "tests").glob("*.py")
+    yield from (PKG / "templates").glob("*.html")
+    yield from (PKG / "static").rglob("*.css")
+    yield PKG / "static" / "app.js"
+
+
+def is_stale() -> bool:
+    if not DB_PATH.exists():
+        return True
+    built = DB_PATH.stat().st_mtime
+    return any(p.stat().st_mtime > built for p in sources() if p.exists())
+
+
 def build() -> Graph:
     g = Graph()
     defined = scan_python(g)
@@ -483,8 +500,14 @@ def build() -> Graph:
 
 
 def connect() -> sqlite3.Connection:
-    if not DB_PATH.exists():
-        sys.exit("No graph yet. Run: uv run tools/kg.py build")
+    # Rebuild rather than answer from a stale graph. A graph that is merely
+    # out of date is worse than no graph: it answers confidently and wrongly,
+    # and nothing about the answer says how old it is. The scan is well under
+    # a second, so there is nothing to weigh up. Said on stderr so piping the
+    # output of `sql` still works.
+    if is_stale():
+        print("(sources changed — rebuilding the graph)", file=sys.stderr)
+        build()
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     return conn

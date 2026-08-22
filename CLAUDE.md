@@ -97,6 +97,23 @@ which `body.present` maps onto `--fg/--bg/--muted/--accent`. A theme therefore
 restyles the whole projector page without any component knowing themes exist.
 `/admin` and `/join` are deliberately left alone.
 
+## Before you start
+
+```bash
+git config core.hooksPath tools/githooks   # once per clone: enables the pre-push check
+```
+
+`tools/smoke.sh` drives a real session end to end — uvicorn, static assets and
+their cache headers, cookies across redirects, the QR redraw, the CSV. Run it
+after anything touching a route, a template or `app.js`; `pytest` uses
+TestClient and never starts a server, so it cannot see those. Every bug that
+reached a browser this far has been invisible to pytest and visible here.
+
+```bash
+tools/smoke.sh          # 22 checks, ~6s, exits 1 on failure, cleans up after itself
+tools/smoke.sh 9001 quizzes/my_quiz.py
+```
+
 ## The knowledge graph
 
 `tools/kg.py` scans the repo into a SQLite graph — modules, functions, routes,
@@ -105,7 +122,7 @@ Use it before reading files: it answers cross-language questions in one query
 that would otherwise take several greps and a lot of context.
 
 ```bash
-uv run tools/kg.py build                  # rebuild (derived; gitignored)
+uv run tools/kg.py build                  # force a rebuild (derived; gitignored)
 uv run tools/kg.py map                    # compact overview of the whole repo
 uv run tools/kg.py trace /admin/reject    # a route: handler, tables, callers
 uv run tools/kg.py node compute_results   # one thing, both directions
@@ -114,7 +131,9 @@ uv run tools/kg.py check                  # seams that have come apart
 uv run tools/kg.py sql "SELECT ..."       # the graph is just two tables
 ```
 
-Rebuild it after any structural change; it is a snapshot, not a live view.
+It rebuilds itself when any scanned file is newer than the graph (~0.2s), so
+you never have to remember `build` — a stale graph answers confidently and
+wrongly, which is worse than no graph.
 
 **Read `check` output with judgement.** Python extraction is exact (`ast`);
 templates, JS and CSS are regex, so those findings point at a file rather than
