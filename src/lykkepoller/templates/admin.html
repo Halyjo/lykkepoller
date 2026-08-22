@@ -35,15 +35,15 @@
   <form method="post" action="/admin/next"><button type="submit" class="big-btn primary">Next →</button></form>
   <form method="post" action="/admin/clear"><button type="submit" class="big-btn">Clear (Esc)</button></form>
   <form method="post" action="/admin/end" onsubmit="return confirm('End session?');"><button type="submit" class="big-btn danger">End session (E)</button></form>
-  <form method="post" action="/admin/reveal" class="reveal-form">
+  <form method="post" action="/admin/reveal">
     <input type="hidden" name="on" value="{{ '0' if state.reveal_free_text else '1' }}">
     <button type="submit" class="big-btn">{{ 'Hide' if state.reveal_free_text else 'Reveal' }} answers on /present (R)</button>
   </form>
-  <form method="post" action="/admin/reveal_correct" class="reveal-correct-form">
+  <form method="post" action="/admin/reveal_correct">
     <input type="hidden" name="on" value="{{ '0' if state.reveal_correct else '1' }}">
     <button type="submit" class="big-btn">{{ 'Hide' if state.reveal_correct else 'Show' }} correct (C)</button>
   </form>
-  <form method="post" action="/admin/approve_all" class="approve-all-form">
+  <form method="post" action="/admin/approve_all">
     <button type="submit" class="big-btn">Approve all so far (A)</button>
   </form>
 </section>
