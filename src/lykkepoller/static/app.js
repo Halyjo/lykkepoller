@@ -37,28 +37,59 @@
 
 const POLL_MS = 1500;
 
+// Poll on a self-scheduling timer, not setInterval.
+//
+// Two things setInterval gets wrong on a phone:
+//
+//   1. A locked screen or a switch to another app throttles the timer to
+//      once a minute (Chrome) or suspends it outright (iOS Safari). The
+//      student looks back and is still on the previous question, which is
+//      why reloading by hand "fixed" it. So we poll the instant the page
+//      becomes visible again, and on pageshow, which also covers coming
+//      back through the bfcache after a tap on "back".
+//
+//   2. setInterval fires whether or not the last poll finished. On a slow
+//      connection that stacks requests until the browser's six-per-host
+//      limit queues them. Scheduling the next poll only after the last one
+//      lands cannot pile up.
+function startPolling(poll) {
+  let timer = null;
+  let inFlight = false;
+
+  async function tick() {
+    if (inFlight) return;   // the running poll will schedule the next one
+    inFlight = true;
+    try {
+      await poll();
+    } catch (_e) {
+      // Never let one failed poll kill the loop.
+    } finally {
+      inFlight = false;
+      clearTimeout(timer);
+      timer = setTimeout(tick, POLL_MS);
+    }
+  }
+
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") tick();
+  });
+  window.addEventListener("pageshow", () => tick());
+
+  tick();
+  return tick;
+}
+
 document.addEventListener("DOMContentLoaded", () => {
   if (document.body.classList.contains("participant")) {
-    pollParticipant();
-    setInterval(pollParticipant, POLL_MS);
+    startPolling(pollParticipant);
   } else if (document.body.classList.contains("admin")) {
-    bindAdminShortcuts(pollAdmin, {onPresent: false});
-    pollAdmin();
-    setInterval(pollAdmin, POLL_MS);
+    bindAdminShortcuts(startPolling(pollAdmin), {onPresent: false});
   } else if (document.body.classList.contains("present")) {
     const root = document.getElementById("present-app");
-    // Fragment controller runs in the capture phase, so it can intercept
-    // → / Space before bindAdminShortcuts sees it. If the active content
-    // slide has unrevealed `.fragment` elements, reveal the next one and
-    // stop propagation (so the slide does NOT advance). When fragments
-    // are exhausted, the event falls through and the slide advances as
-    // normal.
-    bindFragmentController();
+    const refresh = startPolling(pollPresent);
     if (root && root.dataset.admin === "1") {
-      bindAdminShortcuts(pollPresent, {onPresent: true});
+      bindAdminShortcuts(refresh, {onPresent: true});
     }
-    pollPresent();
-    setInterval(pollPresent, POLL_MS);
   }
 });
 
@@ -145,74 +176,56 @@ async function pollAdmin() {
     badge.textContent = text;
   }
 
-  // Two independent visual cues per slide:
-  //   .active     -> currently on /present (matches active_slide_index)
-  //   .answering  -> still receiving answers (matches active_question_id;
-  //                  stays set on a question even after the presenter
-  //                  advances to the next discussion slide)
-  // Reveal-state badges/stripes follow .answering, not .active, because the
-  // reveal applies to whichever question is being answered, not whichever
-  // slide is on screen.
-  const activeIdx = data.active_slide_index;
-  document.querySelectorAll(".slide-item").forEach(item => {
-    const idx = parseInt(item.dataset.slideIndex, 10);
-    const isDisplayed = activeIdx != null && idx === activeIdx;
-    item.classList.toggle("active", isDisplayed);
+  // The active question is the one accepting answers, and the one whose
+  // reveal state the R and C badges describe.
+  document.querySelectorAll(".question-item").forEach(item => {
+    const isActive = item.dataset.qid === data.active_question_id;
+    const r = data.results ? data.results[item.dataset.qid] : null;
+    const hasCorrect = !!(r && r.type === "multiple_choice" && r.any_correct);
+    item.classList.toggle("active", isActive);
+    item.classList.toggle("answering", isActive);
+    item.classList.toggle("revealed", isActive && !!data.reveal_free_text);
+    item.classList.toggle("correct-revealed", isActive && !!data.reveal_correct && hasCorrect);
 
-    if (item.classList.contains("question-item")) {
-      const isAnswering = item.dataset.qid === data.active_question_id;
-      const r = data.results ? data.results[item.dataset.qid] : null;
-      const hasCorrect = !!(r && r.type === "multiple_choice" && r.any_correct);
-      item.classList.toggle("answering", isAnswering);
-      item.classList.toggle("revealed", isAnswering && !!data.reveal_free_text);
-      item.classList.toggle("correct-revealed", isAnswering && !!data.reveal_correct && hasCorrect);
+    const btn = item.querySelector('form[action="/admin/activate"] button');
+    if (btn) btn.textContent = isActive ? "Open" : "Activate";
 
-      const btn = item.querySelector('form[action="/admin/activate"] button');
-      if (btn) {
-        btn.textContent = isDisplayed ? "Showing" : isAnswering ? "Answering" : "Activate";
+    // Reveal-state badges (only on the active item):
+    //   .replies — whether free-text/MC results are visible on /present (R)
+    //   .correct — whether the correct MC option is highlighted on /present (C);
+    //              only relevant when the question is MC with a correct option.
+    const head = item.querySelector(".q-head");
+    const typeSpan = head ? head.querySelector(".muted") : null;
+    const ensureBadge = (cls, after) => {
+      let b = item.querySelector(`.reveal-badge.${cls}`);
+      if (!b && head) {
+        b = document.createElement("span");
+        if (after && after.parentNode === head) after.after(b);
+        else head.appendChild(b);
       }
+      return b;
+    };
+    const removeBadge = (cls) => {
+      const b = item.querySelector(`.reveal-badge.${cls}`);
+      if (b) b.remove();
+    };
 
-      // Reveal-state badges (only on the answering item):
-      //   .replies — whether free-text/MC results are visible on /present (R)
-      //   .correct — whether the correct MC option is highlighted on /present (C);
-      //              only relevant when the question is MC with a correct option.
-      const head = item.querySelector(".q-head");
-      const typeSpan = head ? head.querySelector(".muted") : null;
-      const ensureBadge = (cls, after) => {
-        let b = item.querySelector(`.reveal-badge.${cls}`);
-        if (!b && head) {
-          b = document.createElement("span");
-          if (after && after.parentNode === head) after.after(b);
-          else head.appendChild(b);
-        }
-        return b;
-      };
-      const removeBadge = (cls) => {
-        const b = item.querySelector(`.reveal-badge.${cls}`);
-        if (b) b.remove();
-      };
-
-      if (isAnswering) {
-        const replies = ensureBadge("replies", typeSpan);
-        const rOn = !!data.reveal_free_text;
-        replies.className = "reveal-badge replies " + (rOn ? "on" : "off");
-        replies.textContent = rOn ? "Showing on /present" : "Hidden on /present";
-        if (hasCorrect) {
-          const correct = ensureBadge("correct", replies);
-          const cOn = !!data.reveal_correct;
-          correct.className = "reveal-badge correct " + (cOn ? "on" : "off");
-          correct.textContent = cOn ? "Correct shown" : "Correct hidden";
-        } else {
-          removeBadge("correct");
-        }
+    if (isActive) {
+      const replies = ensureBadge("replies", typeSpan);
+      const rOn = !!data.reveal_free_text;
+      replies.className = "reveal-badge replies " + (rOn ? "on" : "off");
+      replies.textContent = rOn ? "Showing on /present" : "Hidden on /present";
+      if (hasCorrect) {
+        const correct = ensureBadge("correct", replies);
+        const cOn = !!data.reveal_correct;
+        correct.className = "reveal-badge correct " + (cOn ? "on" : "off");
+        correct.textContent = cOn ? "Correct shown" : "Correct hidden";
       } else {
-        removeBadge("replies");
         removeBadge("correct");
       }
     } else {
-      // Content stripe: just flip the Show/Showing button text.
-      const btn = item.querySelector('form[action="/admin/activate_slide"] button');
-      if (btn) btn.textContent = isDisplayed ? "Showing" : "Show";
+      removeBadge("replies");
+      removeBadge("correct");
     }
   });
 
@@ -331,27 +344,18 @@ async function pollPresent() {
 
   const currentPhase = root.dataset.phase || "";
   const currentQid = root.dataset.qid || "";
-  const currentSlideIdx = root.dataset.slideIndex || "";
+
   const nextQid =
     data.phase === "active" && data.active_question ? data.active_question.id : "";
-  const nextSlideIdx =
-    data.active_slide_index != null ? String(data.active_slide_index) : "";
-  // Reload on any structural change: phase, active question, or active slide.
-  // Slide-index changes trigger a reload so a different content slide's HTML
-  // gets rendered server-side (we don't shuttle slide HTML over the wire).
-  if (
-    currentPhase !== data.phase ||
-    currentQid !== nextQid ||
-    currentSlideIdx !== nextSlideIdx
-  ) {
+  // Reload on a structural change -- a new phase or a new question -- so the
+  // server renders the new page. Counts and result bars update in place.
+  if (currentPhase !== data.phase || currentQid !== nextQid) {
     window.location.reload();
     return;
   }
 
   // Keep the hidden reveal-toggle forms in sync so a second R/C press sends
-  // the correct flip value rather than a stale one. Done before the results
-  // block below, which is skipped on content slides -- the presenter can
-  // still press R while discussing a chart on the following slide.
+  // the correct flip value rather than a stale one.
   syncRevealToggle('form[action="/admin/reveal"]', data.reveal_free_text);
   syncRevealToggle('form[action="/admin/reveal_correct"]', data.reveal_correct);
 
@@ -425,44 +429,6 @@ function renderFreeTextPresent(r, reveal) {
   return html;
 }
 
-// --- fragment controller (content slides on /present) ---------------------
-
-function bindFragmentController() {
-  // Capture-phase listener: runs before bindAdminShortcuts. If the active
-  // slide is a content slide with unrevealed fragments, reveal one fragment
-  // and stop the event so the slide does not advance. When fragments are
-  // exhausted the event falls through to the existing /admin/next handler.
-  //
-  // ArrowLeft hides the most recently revealed fragment (so you can step
-  // back through reveals before going to the previous slide).
-  document.addEventListener("keydown", (e) => {
-    if (e.metaKey || e.ctrlKey || e.altKey) return;
-    const tag = ((document.activeElement && document.activeElement.tagName) || "").toLowerCase();
-    if (tag === "input" || tag === "textarea") return;
-
-    const slide = document.querySelector(".slide-content");
-    if (!slide) return;
-
-    if (e.key === "ArrowRight" || e.key === " ") {
-      const next = slide.querySelector(".fragment:not(.revealed)");
-      if (next) {
-        e.preventDefault();
-        e.stopPropagation();
-        next.classList.add("revealed");
-      }
-    } else if (e.key === "ArrowLeft") {
-      const revealed = slide.querySelectorAll(".fragment.revealed");
-      if (revealed.length > 0) {
-        e.preventDefault();
-        e.stopPropagation();
-        revealed[revealed.length - 1].classList.remove("revealed");
-      }
-    }
-  }, true);  // capture phase
-}
-
-// --- admin keyboard shortcuts ----------------------------------------------
-
 function bindAdminShortcuts(refresh, opts) {
   // refresh: function called after each successful POST to re-fetch state.
   //   pollAdmin on /admin, pollPresent on /present.
@@ -483,7 +449,7 @@ function bindAdminShortcuts(refresh, opts) {
         .then(() => refresh())
         .then(() => {
           if (onPresent) return;
-          const active = document.querySelector(".slide-item.active");
+          const active = document.querySelector(".question-item.active");
           if (active) active.scrollIntoView({behavior: "smooth", block: "nearest"});
         });
     };
