@@ -16,3 +16,6 @@ data/*.sqlite-shm
 data/*.qr.png
 
 .DS_Store
+
+# Derived: rebuild with `uv run tools/kg.py build`
+tools/kg.sqlite

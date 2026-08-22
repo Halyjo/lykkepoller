@@ -97,6 +97,32 @@ which `body.present` maps onto `--fg/--bg/--muted/--accent`. A theme therefore
 restyles the whole projector page without any component knowing themes exist.
 `/admin` and `/join` are deliberately left alone.
 
+## The knowledge graph
+
+`tools/kg.py` scans the repo into a SQLite graph — modules, functions, routes,
+tables, templates, CSS classes, JS functions, and the edges between them.
+Use it before reading files: it answers cross-language questions in one query
+that would otherwise take several greps and a lot of context.
+
+```bash
+uv run tools/kg.py build                  # rebuild (derived; gitignored)
+uv run tools/kg.py map                    # compact overview of the whole repo
+uv run tools/kg.py trace /admin/reject    # a route: handler, tables, callers
+uv run tools/kg.py node compute_results   # one thing, both directions
+uv run tools/kg.py impact db.end_session  # what breaks if I change it
+uv run tools/kg.py check                  # seams that have come apart
+uv run tools/kg.py sql "SELECT ..."       # the graph is just two tables
+```
+
+Rebuild it after any structural change; it is a snapshot, not a live view.
+
+**Read `check` output with judgement.** Python extraction is exact (`ast`);
+templates, JS and CSS are regex, so those findings point at a file rather than
+proving anything. The two questions it answers with certainty — does every form
+action hit a real route, does every JS selector match markup something renders —
+are pinned in `tests/test_graph.py` instead. Both failure modes are silent in
+the browser, which is how they survived a whole refactor unnoticed.
+
 ## Where things are
 
 ```text
