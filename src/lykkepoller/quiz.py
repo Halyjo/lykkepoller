@@ -15,8 +15,15 @@ Everything is checked as the question is built, so mistakes point at your
 line. Ids are handed out for you: questions q1, q2..., options A, B, C...
 Pass id= to set one yourself -- that is what shows up in the CSV.
 
-to_questions() turns these objects into the dicts stored in the session
-database. Once a session starts, that snapshot is all anyone reads.
+These objects exist only until the quiz is handed over. to_spec() turns
+them into a QuizSpec -- the checked, versioned shape in spec.py that both
+the `.lykkepoll` file format and the session database are written from.
+Once a session starts, that snapshot is all anyone reads.
+
+quiz.save("my.lykkepoll") writes the file. There is no load() back into
+these classes on purpose: a saved file may carry option ids these classes
+would re-letter, so the round trip would quietly change what the CSV says.
+Run a saved file with `lykkepoller run --file my.lykkepoll` instead.
 """
 
 from __future__ import annotations
@@ -27,13 +34,10 @@ import re
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Literal
 
-Theme = Literal["plain", "teal", "editorial", "dark", "notebook"]
-THEMES = ("plain", "teal", "editorial", "dark", "notebook")
-
-MAX_OPTIONS = 26  # options are lettered A..Z
-MIN_STEPS, MAX_STEPS = 2, 11  # fewer is not a scale; more is untappable
+# The limits and the theme list live in spec.py, so the file format and the
+# Python API cannot drift apart on what a valid quiz is.
+from .spec import MAX_OPTIONS, MAX_STEPS, MIN_STEPS, THEMES, QuizSpec, Theme
 
 
 def _text(value, what: str) -> str:
@@ -64,11 +68,11 @@ class MultipleChoice:
 
     def to_dict(self) -> dict:
         options = [
-            {"id": chr(65 + i), "label": label,
-             **({"is_correct": True} if label in self.right else {})}
+            {"id": chr(65 + i), "label": label, "is_correct": label in self.right}
             for i, label in enumerate(self.options)
         ]
-        return {"id": self.id, "type": "multiple_choice", "prompt": self.prompt, "options": options}
+        return {"type": "multiple_choice", "id": self.id, "prompt": self.prompt,
+                "options": options}
 
 
 @dataclass
@@ -98,7 +102,7 @@ class Rating:
 
     def to_dict(self) -> dict:
         return {
-            "id": self.id, "type": "rating", "prompt": self.prompt,
+            "type": "rating", "id": self.id, "prompt": self.prompt,
             "steps": self.steps, "low_label": self.low, "high_label": self.high,
         }
 
@@ -115,7 +119,7 @@ class FreeText:
         self.prompt = _text(self.prompt, "prompt")
 
     def to_dict(self) -> dict:
-        return {"id": self.id, "type": "free_text", "prompt": self.prompt}
+        return {"type": "free_text", "id": self.id, "prompt": self.prompt}
 
 
 Question = MultipleChoice | Rating | FreeText
@@ -180,8 +184,21 @@ class Quiz:
                 )
             seen[q.id] = i
 
+    def to_spec(self) -> QuizSpec:
+        """This quiz as a QuizSpec -- the shape files and sessions are made of."""
+        return QuizSpec(
+            title=self.title,
+            theme=self.theme,
+            questions=[q.to_dict() for q in self.questions],
+        )
+
     def to_questions(self) -> list[dict]:
-        return [q.to_dict() for q in self.questions]
+        """The stored snapshot. Goes through the spec, so it is checked twice."""
+        return self.to_spec().to_questions()
+
+    def save(self, path: str | Path) -> Path:
+        """Write this quiz to a `.lykkepoll` file. Returns the path."""
+        return self.to_spec().save(path)
 
     def run(self, *, host="127.0.0.1", port=8000, tunnel=True, domain=None, tunnel_name=None):
         """Start a session and serve it. Command-line flags win over these,
@@ -190,10 +207,7 @@ class Quiz:
 
         opts = _flags(host, port, tunnel, domain, tunnel_name)
         source = Path(sys.argv[0]).name if sys.argv and sys.argv[0] else slugify(self.title)
-        db_path = serve_mod.new_session_db(
-            title=self.title, questions=self.to_questions(),
-            theme=self.theme, source_name=source,
-        )
+        db_path = serve_mod.new_session_db(self.to_spec(), source_name=source)
         serve_mod.serve(db_path=db_path, **opts)
 
 
@@ -239,6 +253,7 @@ if __name__ == "__main__":
     ])
     for q in demo.to_questions():
         print(q)
+    print(demo.to_spec().to_json())
 
     for bad in (
         lambda: MultipleChoice("Oops", options=["Red", "Blue"], correct="Blu"),

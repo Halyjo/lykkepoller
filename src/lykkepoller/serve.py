@@ -1,8 +1,8 @@
 """Making a session file and putting it on the network.
 
 Separate from cli.py so quiz.run() need not import the command line tool.
-New sessions come from a quiz script, reopened ones from `lykkepoller run
---db`; both end up in serve().
+New sessions come from a quiz script or `lykkepoller run --file`, reopened
+ones from `lykkepoller run --db`; all of them end up in serve().
 """
 
 from __future__ import annotations
@@ -20,6 +20,7 @@ import uvicorn
 
 from . import app as app_module
 from . import db as db_module
+from .spec import QuizSpec
 
 DATA_DIR = Path("data")
 
@@ -37,8 +38,12 @@ def _slug(text: str) -> str:
     return re.sub(r"-+", "-", re.sub(r"[^A-Za-z0-9._-]+", "-", text)).strip("-_.") or "session"
 
 
-def new_session_db(*, title: str, questions: list[dict], theme: str, source_name: str) -> Path:
-    """Create the session database and return its path.
+def new_session_db(spec: QuizSpec, *, source_name: str) -> Path:
+    """Create the session database from a checked quiz and return its path.
+
+    A QuizSpec is the only way in, whether the quiz came from a Python file
+    or a `.lykkepoll` one -- so a session can never hold questions that
+    would not survive being written to a file.
 
     The name carries the date and the quiz file, so `ls data/` explains
     itself later; the random id keeps two runs of the same quiz apart.
@@ -53,8 +58,8 @@ def new_session_db(*, title: str, questions: list[dict], theme: str, source_name
     conn = db_module.connect(db_path)
     db_module.init_schema(conn)
     db_module.create_session(
-        conn, session_id, title, questions, friendly_id(),
-        source_filename=source_name, theme=theme,
+        conn, session_id, spec.title, spec.to_questions(), friendly_id(),
+        source_filename=source_name, theme=spec.theme,
     )
     conn.close()
     return db_path

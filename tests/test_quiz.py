@@ -44,19 +44,21 @@ def test_option_ids_are_letters():
 def test_correct_marks_the_option():
     q = ok_quiz(questions=[MultipleChoice("p", options=["a", "b"], correct="b")])
     opts = q.to_questions()[0]["options"]
-    assert "is_correct" not in opts[0]
+    # Written on every option, not only the right one: a reader in another
+    # language should not have to know a missing key means false.
+    assert opts[0]["is_correct"] is False
     assert opts[1]["is_correct"] is True
 
 
 def test_several_correct_options():
     q = ok_quiz(questions=[MultipleChoice("p", options=["a", "b", "c"], correct=["a", "c"])])
-    marks = [o.get("is_correct", False) for o in q.to_questions()[0]["options"]]
+    marks = [o["is_correct"] for o in q.to_questions()[0]["options"]]
     assert marks == [True, False, True]
 
 
 def test_no_correct_marks_nothing():
     q = ok_quiz(questions=[MultipleChoice("p", options=["a", "b"])])
-    assert all("is_correct" not in o for o in q.to_questions()[0]["options"])
+    assert all(o["is_correct"] is False for o in q.to_questions()[0]["options"])
 
 
 def test_correct_typo_suggests_the_real_option():

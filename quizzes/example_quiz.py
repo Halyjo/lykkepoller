@@ -27,7 +27,7 @@ quiz = Quiz(
         ),
         FreeText("What is your favorite food?"),
         MultipleChoice(
-            "Pick a colour", 
+            "Pick a colour",
             options=["Red", "Blue", "Green"],
             correct=["Red", "Blue", "Green"],
         ),

@@ -5,9 +5,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## What this is
 
 Live polling for talks, run from the presenter's laptop. A quiz is a Python
-file; a session is one SQLite file. Three pages: `/admin` (presenter),
-`/present` (projector), `/join` (phones). No accounts, no build step, no
-database server.
+file or a saved `.lykkepoll` file; a session is one SQLite file. Three pages:
+`/admin` (presenter), `/present` (projector), `/join` (phones). No accounts,
+no build step, no database server.
 
 `README.md` is the user-facing reference. Update it when you change behaviour
 it describes.
@@ -17,6 +17,9 @@ it describes.
 ```bash
 uv sync
 uv run quizzes/example_quiz.py --no-tunnel   # start a session (no phones)
+uv run lykkepoller run --file q.lykkepoll    # start one from a saved quiz
+uv run lykkepoller validate q.lykkepoll      # check a saved quiz
+uv run lykkepoller schema                    # the format as JSON Schema
 uv run lykkepoller run --db data/<f>.sqlite  # reopen a saved session
 uv run lykkepoller inspect data/<f>.sqlite
 uv run lykkepoller export data/<f>.sqlite -o out.csv
@@ -26,6 +29,7 @@ uv run pytest tests/test_quiz.py::test_name  # one test
 uv run pytest -k reveal
 uv run ruff check .                          # line length 100
 uv run python -m lykkepoller.quiz            # quiz.py's demo block
+uv run python -m lykkepoller.spec            # spec.py's demo block
 ```
 
 ## Architecture
@@ -34,10 +38,17 @@ uv run python -m lykkepoller.quiz            # quiz.py's demo block
 one shared connection and reads the single session row. There is no
 multi-session state anywhere.
 
-**Two entry points, one job each.** A quiz script starts a *new* session
-(`quiz.run()` → `serve.new_session_db()` → `serve.serve()`). The `lykkepoller`
-CLI only *reopens* (`run --db`), inspects and exports. `serve.py` exists so the
-library never has to import the CLI.
+**One way into a new session: a QuizSpec.** `serve.new_session_db(spec, ...)`
+takes nothing else. A Python quiz gets there via `quiz.run()` →
+`Quiz.to_spec()`; a saved file via `lykkepoller run --file` → `spec.load()`.
+So a session can never hold questions that would not survive being written to
+a file. `serve.py` exists so the library never has to import the CLI.
+
+**`run --db` and `run --file` are different jobs.** `--db` reopens a session,
+answers and all; `--file` starts a fresh one from a saved quiz. An earlier
+version of this file said the CLI only ever reopens — that changed when the
+file format arrived, because a language-independent quiz file you cannot run
+without Python is not language-independent.
 
 **The database is the only live state.** Routes read SQLite on every request and
 render server-side. `static/app.js` polls a JSON endpoint every 1.5s and reloads
@@ -50,16 +61,23 @@ multiple choice and rating) and `append_responses` (append-only, for free text).
 The table a row lands in is what makes an answer one-shot or repeatable — not a
 column that could disagree with the question definition.
 
-**Snapshot at session start.** `Quiz.to_questions()` produces plain dicts that
-go into `sessions.questions_json`. The quiz file is never imported again, so
+**Snapshot at session start.** `QuizSpec.to_questions()` produces plain dicts
+that go into `sessions.questions_json`. The quiz file is never read again, so
 editing it mid-session changes nothing. Answers are tied to what was actually
 asked. Don't break this while refactoring.
 
+**The stored snapshot and the `.lykkepoll` file are the same shape.** Both are
+`QuizSpec` questions, so there is one shape to learn and no translation layer
+to drift. Changing a field means bumping `SCHEMA_VERSION` in `spec.py` *and*
+thinking about old session files, which are read with no validation because
+the runtime wrote them itself.
+
 **The authoring layer and the runtime speak different types.** `quiz.py`'s
-dataclasses exist only until `to_questions()` runs. Everything downstream —
+dataclasses exist only until `to_spec()` runs. Everything downstream —
 `app.py`, `db.py`, `exports.py`, the templates — reads the stored dicts.
 `find_question` and `option_label` at the bottom of `quiz.py` operate on those
-dicts, not the dataclasses.
+dicts, not the dataclasses. There is no loader from a file back into the
+dataclasses: a file may carry option ids they would re-letter.
 
 **Free text and the vote types reveal in opposite directions.** `activate()` in
 `app.py` opens free text with `reveal_free_text` on (it starts empty, so there is
@@ -67,9 +85,16 @@ nothing to leak) and multiple choice off (bars would let the room see the leader
 and follow it). Rejection (`rejected_free_text`) exists so "approve all" can skip
 what the presenter crossed out — "not yet approved" alone could not express that.
 
-**Validation happens in `__post_init__`,** so errors name the field and point at
-the line in the user's quiz file. Hand-written `if` statements, no framework.
-This is the project's main guard rail — when adding a field, add its check.
+**Two gates, two audiences.** `quiz.py` validates in `__post_init__` with
+hand-written `if`s, so errors name the field, point at the line in the user's
+Python, and can say "Did you mean 'Blue'?". `spec.py` validates `.lykkepoll`
+files with pydantic, because those arrive from outside and the job is to
+reject a bad one completely and list every problem at once. Don't merge them:
+pydantic would make the authoring errors worse, and hand-written checks would
+make the file errors patchier. When adding a field, add it to both.
+
+`extra="forbid"` on the spec models is deliberate — a mistyped `"lowlabel"`
+that was silently ignored would show up as a blank projector label mid-talk.
 
 **Deck position is derived, not stored.** It is the index of
 `state.active_question_id` in the questions list (`question_index` in `app.py`).
@@ -112,6 +137,7 @@ reached a browser this far has been invisible to pytest and visible here.
 ```bash
 tools/smoke.sh          # 22 checks, ~6s, exits 1 on failure, cleans up after itself
 tools/smoke.sh 9001 quizzes/my_quiz.py
+tools/smoke.sh 9001 quizzes/my_quiz.lykkepoll   # drives `run --file` instead
 ```
 
 ## The knowledge graph
@@ -147,10 +173,11 @@ the browser, which is how they survived a whole refactor unnoticed.
 ```text
 src/lykkepoller/
   quiz.py      Quiz, MultipleChoice, Rating, FreeText + validation
+  spec.py      QuizSpec: the .lykkepoll format, pydantic-checked
   serve.py     session file creation, cloudflared, uvicorn
   app.py       every route, state helpers, result aggregation
   db.py        all the SQL, schema, migration hooks
-  cli.py       reopen / inspect / export
+  cli.py       run --file / reopen / inspect / export / validate / schema
   exports.py   CSV
   templates/   base, participant, admin, present
   static/      style.css, app.js, themes/
@@ -161,7 +188,8 @@ src/lykkepoller/
 `tests/test_db.py` is deliberately heavy — the database is the state machine.
 `tests/test_app.py` drives the app over HTTP with `TestClient` and is where
 behaviour changes get pinned down. `tests/test_quiz.py` covers every guard rail
-in the authoring layer.
+in the authoring layer, and `tests/test_spec.py` every way a `.lykkepoll` file
+can be wrong.
 
 ## House style here
 
@@ -169,4 +197,4 @@ in the authoring layer.
   compressed on purpose — don't re-inflate it.
 - Flat and explicit over clever. No new abstractions on speculation.
 - The library files end with an `if __name__ == "__main__":` demo block where
-  one helps (`quiz.py` has one).
+  one helps (`quiz.py` and `spec.py` have one).

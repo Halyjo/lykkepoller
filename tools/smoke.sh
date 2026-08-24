@@ -3,6 +3,9 @@
 #
 #   tools/smoke.sh [port] [quiz file]
 #
+# The quiz file may be a Python script or a saved .lykkepoll file; both are
+# ways to start a session, so both are worth driving through a real server.
+#
 # pytest covers the app through TestClient, which never starts a server. This
 # starts one. Everything TestClient stands in for has to actually work here:
 # uvicorn, the static mount and its cache headers, cookies across redirects,
@@ -62,7 +65,10 @@ json() {  # json <path-expr>  -- reads stdin
 # --- start --------------------------------------------------------------------
 
 echo "smoke: $QUIZ on port $PORT"
-uv run "$QUIZ" --no-tunnel --port "$PORT" >"$LOG" 2>&1 &
+case "$QUIZ" in
+  *.lykkepoll) uv run lykkepoller run --file "$QUIZ" --no-tunnel --port "$PORT" >"$LOG" 2>&1 & ;;
+  *)           uv run "$QUIZ" --no-tunnel --port "$PORT" >"$LOG" 2>&1 & ;;
+esac
 SERVER=$!
 
 for _ in $(seq 1 50); do
