@@ -1,0 +1,91 @@
+{
+  "schema_version": 1,
+  "title": "Demo polling session",
+  "theme": "notebook",
+  "questions": [
+    {
+      "type": "multiple_choice",
+      "id": "q1",
+      "prompt": "Where does learning happen?",
+      "options": [
+        {
+          "id": "A",
+          "label": "On the screen",
+          "is_correct": false
+        },
+        {
+          "id": "B",
+          "label": "In the learners head",
+          "is_correct": true
+        },
+        {
+          "id": "C",
+          "label": "On a blackboard",
+          "is_correct": false
+        },
+        {
+          "id": "D",
+          "label": "In a dialogue",
+          "is_correct": false
+        }
+      ]
+    },
+    {
+      "type": "multiple_choice",
+      "id": "q2",
+      "prompt": "Why do we really need the loss function?",
+      "options": [
+        {
+          "id": "A",
+          "label": "To evaluate the model",
+          "is_correct": false
+        },
+        {
+          "id": "B",
+          "label": "To give feedback to the model",
+          "is_correct": true
+        },
+        {
+          "id": "C",
+          "label": "To initialize the model",
+          "is_correct": false
+        }
+      ]
+    },
+    {
+      "type": "free_text",
+      "id": "q3",
+      "prompt": "What is your favorite food?"
+    },
+    {
+      "type": "multiple_choice",
+      "id": "q4",
+      "prompt": "Pick a colour",
+      "options": [
+        {
+          "id": "A",
+          "label": "Red",
+          "is_correct": true
+        },
+        {
+          "id": "B",
+          "label": "Blue",
+          "is_correct": true
+        },
+        {
+          "id": "C",
+          "label": "Green",
+          "is_correct": true
+        }
+      ]
+    },
+    {
+      "type": "rating",
+      "id": "q5",
+      "prompt": "How well did you follow this section?",
+      "steps": 5,
+      "low_label": "Lost",
+      "high_label": "Got it"
+    }
+  ]
+}

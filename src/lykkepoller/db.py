@@ -45,7 +45,7 @@ CREATE TABLE IF NOT EXISTS sessions (
     created_at TEXT NOT NULL,
     questions_json TEXT NOT NULL,
     public_url_override TEXT,
-    admin_token TEXT NOT NULL,
+    drive_token TEXT NOT NULL,
     source_filename TEXT,
     theme TEXT NOT NULL DEFAULT 'plain'
 );
@@ -99,7 +99,7 @@ CREATE TABLE IF NOT EXISTS append_responses (
 );
 
 -- Heartbeat table. Every participant poll updates last_seen_at via upsert.
--- Used to compute the live "connected" count shown on /admin and /present.
+-- Used to compute the live "connected" count shown on /drive and /present.
 CREATE TABLE IF NOT EXISTS participants (
     session_id TEXT NOT NULL,
     participant_id TEXT NOT NULL,
@@ -108,7 +108,7 @@ CREATE TABLE IF NOT EXISTS participants (
     FOREIGN KEY (session_id) REFERENCES sessions(id)
 );
 
--- Free-text answers the presenter has approved for /present. Admin sees all
+-- Free-text answers the presenter has approved for /present. The presenter sees all
 -- answers; /present only sees approved ones (and only when the global
 -- reveal_free_text toggle is on).
 CREATE TABLE IF NOT EXISTS approved_free_text (
@@ -170,21 +170,21 @@ def create_session(
     session_id: str,
     title: str,
     questions: list[dict],
-    admin_token: str,
+    drive_token: str,
     source_filename: str | None = None,
     theme: str = "plain",
 ) -> None:
     """Insert a new session row plus a fresh state row (IDLE)."""
     conn.execute(
         "INSERT INTO sessions (id, title, created_at, questions_json, "
-        "admin_token, source_filename, theme) "
+        "drive_token, source_filename, theme) "
         "VALUES (?, ?, ?, ?, ?, ?, ?)",
         (
             session_id,
             title,
             now_iso(),
             json.dumps(questions),
-            admin_token,
+            drive_token,
             source_filename,
             theme,
         ),
@@ -197,7 +197,7 @@ def get_session(conn: sqlite3.Connection) -> dict | None:
     """Return the (only) session in this DB, or None if it has not been created."""
     row = conn.execute(
         "SELECT id, title, created_at, questions_json, public_url_override, "
-        "admin_token, source_filename, theme "
+        "drive_token, source_filename, theme "
         "FROM sessions LIMIT 1"
     ).fetchone()
     if row is None:
@@ -208,7 +208,7 @@ def get_session(conn: sqlite3.Connection) -> dict | None:
         "created_at": row["created_at"],
         "questions": json.loads(row["questions_json"]),
         "public_url_override": row["public_url_override"],
-        "admin_token": row["admin_token"],
+        "drive_token": row["drive_token"],
         "source_filename": row["source_filename"],
         "theme": row["theme"] or "plain",
     }

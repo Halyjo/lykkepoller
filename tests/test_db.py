@@ -62,7 +62,7 @@ def test_create_and_read_session(conn, session):
     s = db.get_session(conn)
     assert s["id"] == session
     assert s["title"] == "Demo"
-    assert s["admin_token"] == "secret-token"
+    assert s["drive_token"] == "secret-token"
     assert s["public_url_override"] is None
     # questions are stored as JSON; round-trip must be lossless
     assert s["questions"] == make_qs()
@@ -161,7 +161,7 @@ def test_init_schema_migrates_old_db(tmp_path):
             created_at TEXT NOT NULL,
             questions_json TEXT NOT NULL,
             public_url_override TEXT,
-            admin_token TEXT NOT NULL
+            drive_token TEXT NOT NULL
         );
         CREATE TABLE state (
             session_id TEXT PRIMARY KEY,
@@ -169,7 +169,7 @@ def test_init_schema_migrates_old_db(tmp_path):
             ended INTEGER NOT NULL DEFAULT 0,
             reveal_free_text INTEGER NOT NULL DEFAULT 0
         );
-        INSERT INTO sessions (id, title, created_at, questions_json, admin_token)
+        INSERT INTO sessions (id, title, created_at, questions_json, drive_token)
             VALUES ('blue-otter-1234', 'Old', '2026-01-01T00:00:00Z', '[]', 'tok');
         INSERT INTO state (session_id) VALUES ('blue-otter-1234');
         """
@@ -360,11 +360,11 @@ def test_reopen_existing_database_preserves_state(tmp_path):
     db.set_active_question(c1, "blue-otter-1234", "q2")
     db.record_unique_answer(c1, "blue-otter-1234", "q1", "p-alice", "A")
     c1.close()
-    # Reopen: same session id, same admin token, same active question, same answers.
+    # Reopen: same session id, same drive token, same active question, same answers.
     c2 = db.connect(path)
     s = db.get_session(c2)
     assert s["id"] == "blue-otter-1234"
-    assert s["admin_token"] == "tok"
+    assert s["drive_token"] == "tok"
     assert db.get_state(c2, "blue-otter-1234")["active_question_id"] == "q2"
     assert db.get_unique_answer(c2, "blue-otter-1234", "q1", "p-alice") == "A"
     c2.close()

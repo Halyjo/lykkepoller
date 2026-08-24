@@ -1,8 +1,8 @@
 """Making a session file and putting it on the network.
 
 Separate from cli.py so quiz.run() need not import the command line tool.
-New sessions come from a quiz script, reopened ones from `lykkepoller run
---db`; both end up in serve().
+New sessions come from a quiz script or `lykkepoller run --file`, reopened
+ones from `lykkepoller run --db`; all of them end up in serve().
 """
 
 from __future__ import annotations
@@ -20,6 +20,7 @@ import uvicorn
 
 from . import app as app_module
 from . import db as db_module
+from .spec import QuizSpec
 
 DATA_DIR = Path("data")
 
@@ -37,8 +38,12 @@ def _slug(text: str) -> str:
     return re.sub(r"-+", "-", re.sub(r"[^A-Za-z0-9._-]+", "-", text)).strip("-_.") or "session"
 
 
-def new_session_db(*, title: str, questions: list[dict], theme: str, source_name: str) -> Path:
-    """Create the session database and return its path.
+def new_session_db(spec: QuizSpec, *, source_name: str) -> Path:
+    """Create the session database from a checked quiz and return its path.
+
+    A QuizSpec is the only way in, whether the quiz came from a Python file
+    or a `.lykkepoll` one -- so a session can never hold questions that
+    would not survive being written to a file.
 
     The name carries the date and the quiz file, so `ls data/` explains
     itself later; the random id keeps two runs of the same quiz apart.
@@ -53,8 +58,8 @@ def new_session_db(*, title: str, questions: list[dict], theme: str, source_name
     conn = db_module.connect(db_path)
     db_module.init_schema(conn)
     db_module.create_session(
-        conn, session_id, title, questions, friendly_id(),
-        source_filename=source_name, theme=theme,
+        conn, session_id, spec.title, spec.to_questions(), friendly_id(),
+        source_filename=source_name, theme=spec.theme,
     )
     conn.close()
     return db_path
@@ -64,7 +69,7 @@ def serve(*, db_path: Path, host="127.0.0.1", port=8000, tunnel=True,
           domain=None, tunnel_name=None):
     """Serve an existing session database until the process stops."""
     app = app_module.create_app(db_path=db_path)
-    _print_urls(f"http://{host}:{port}", app.state.session_id, app.state.admin_token, db_path)
+    _print_urls(f"http://{host}:{port}", app.state.session_id, app.state.drive_token, db_path)
     if tunnel:
         _start_cloudflared(port, app, domain=domain, tunnel_name=tunnel_name)
 
@@ -97,7 +102,7 @@ def _start_cloudflared(port: int, app, domain=None, tunnel_name=None):
         return None
 
     atexit.register(_terminate_quietly, proc)
-    token = app.state.admin_token
+    token = app.state.drive_token
 
     if domain:
         app.state.tunnel_url = f"https://{domain}"
@@ -119,7 +124,7 @@ def _start_cloudflared(port: int, app, domain=None, tunnel_name=None):
         typer.echo("Tunnel URL not detected. cloudflared said:")
         for raw in tail:
             typer.echo(f"  {raw.rstrip()}")
-        typer.echo("Set the URL by hand in /admin, or restart with --no-tunnel.")
+        typer.echo("Set the URL by hand in /drive, or restart with --no-tunnel.")
 
     threading.Thread(target=watch, daemon=True).start()
     return proc
@@ -144,7 +149,7 @@ def _print_urls(base: str, session_id: str, token: str, db_path: Path) -> None:
         "",
         f"Session:          {session_id}",
         f"Local join:       {base}/join",
-        f"Local admin:      {base}/admin?token={token}",
+        f"Drive (you):      {base}/drive?token={token}",
         f"Present:          {base}/present",
         f"Present (drive):  {base}/present?token={token}",
         f"Database:         {db_path}",

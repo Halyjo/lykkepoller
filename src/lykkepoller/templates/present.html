@@ -10,7 +10,7 @@
      data-phase="{{ phase }}"
      data-qid="{{ active_question.id if active_question else '' }}"
      data-join-url="{{ join_url }}"
-     data-admin="{{ '1' if is_admin else '0' }}">
+     data-drive="{{ '1' if is_driver else '0' }}">
   {% if phase != "idle" %}
     <div class="qr-corner">
       <img src="{{ qr_url }}" alt="QR code to join" class="qr">
@@ -76,21 +76,21 @@
     <div class="question-counter">{{ question_number }} / {{ question_count }}</div>
   {% endif %}
 
-  {% if is_admin %}
-    {# Hidden admin forms so /static/app.js's keyboard shortcuts can submit
-       them by selector, exactly as on /admin. The cookie set during the
+  {% if is_driver %}
+    {# Hidden drive forms so /static/app.js's keyboard shortcuts can submit
+       them by selector, exactly as on /drive. The cookie set during the
        /present?token=... redirect authorizes the POSTs. #}
-    <div class="admin-controls" hidden>
-      <form method="post" action="/admin/prev"></form>
-      <form method="post" action="/admin/next"></form>
-      <form method="post" action="/admin/clear"></form>
-      <form method="post" action="/admin/reveal">
+    <div class="drive-controls" hidden>
+      <form method="post" action="/drive/prev"></form>
+      <form method="post" action="/drive/next"></form>
+      <form method="post" action="/drive/clear"></form>
+      <form method="post" action="/drive/reveal">
         <input type="hidden" name="on" value="{{ '0' if reveal_free_text else '1' }}">
       </form>
-      <form method="post" action="/admin/reveal_correct">
+      <form method="post" action="/drive/reveal_correct">
         <input type="hidden" name="on" value="{{ '0' if reveal_correct else '1' }}">
       </form>
-      <form method="post" action="/admin/approve_all"></form>
+      <form method="post" action="/drive/approve_all"></form>
     </div>
   {% endif %}
 </div>

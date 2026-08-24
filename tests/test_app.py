@@ -58,9 +58,9 @@ def app_client(tmp_path: Path):
     return TestClient(a, follow_redirects=False)
 
 
-def admin(client):
-    """Return a TestClient that has the admin cookie set."""
-    r = client.get("/admin?token=secret")
+def drive(client):
+    """Return a TestClient that has the drive cookie set."""
+    r = client.get("/drive?token=secret")
     assert r.status_code == 303
     # TestClient persists cookies on the same client instance.
     return client
@@ -75,39 +75,39 @@ def test_join_idle(app_client):
     assert "Waiting for presenter" in r.text
 
 
-def test_admin_requires_token(app_client):
-    r = app_client.get("/admin")
+def test_drive_requires_token(app_client):
+    r = app_client.get("/drive")
     assert r.status_code == 401
 
 
-def test_admin_bad_token(app_client):
-    r = app_client.get("/admin?token=nope")
+def test_drive_bad_token(app_client):
+    r = app_client.get("/drive?token=nope")
     assert r.status_code == 401
 
 
-def test_admin_token_sets_cookie_then_clean_url(app_client):
-    r = app_client.get("/admin?token=secret")
+def test_drive_token_sets_cookie_then_clean_url(app_client):
+    r = app_client.get("/drive?token=secret")
     assert r.status_code == 303
-    assert r.headers["location"] == "/admin"
+    assert r.headers["location"] == "/drive"
     # cookie set on the TestClient session
-    r2 = app_client.get("/admin")
+    r2 = app_client.get("/drive")
     assert r2.status_code == 200
     assert "Demo" in r2.text
 
 
 def test_present_token_sets_cookie_then_clean_url(app_client):
-    """/present?token=... should mirror /admin?token=...: validate, set the
-    admin cookie, and 303 to a clean /present so the token disappears from
+    """/present?token=... should mirror /drive?token=...: validate, set the
+    drive cookie, and 303 to a clean /present so the token disappears from
     the address bar before any screen share starts."""
     r = app_client.get("/present?token=secret")
     assert r.status_code == 303
     assert r.headers["location"] == "/present"
     r2 = app_client.get("/present")
     assert r2.status_code == 200
-    assert 'data-admin="1"' in r2.text
-    # Hidden admin forms are present so the keyboard shortcuts can submit them.
-    assert 'action="/admin/next"' in r2.text
-    assert 'action="/admin/reveal"' in r2.text
+    assert 'data-drive="1"' in r2.text
+    # Hidden drive forms are present so the keyboard shortcuts can submit them.
+    assert 'action="/drive/next"' in r2.text
+    assert 'action="/drive/reveal"' in r2.text
 
 
 def test_present_bad_token(app_client):
@@ -115,19 +115,19 @@ def test_present_bad_token(app_client):
     assert r.status_code == 401
 
 
-def test_present_anonymous_has_no_admin_controls(app_client):
+def test_present_anonymous_has_no_drive_controls(app_client):
     r = app_client.get("/present")
     assert r.status_code == 200
-    assert 'data-admin="0"' in r.text
-    assert 'action="/admin/next"' not in r.text
+    assert 'data-drive="0"' in r.text
+    assert 'action="/drive/next"' not in r.text
 
 
-def test_present_cookie_authorizes_admin_posts(app_client):
-    """After /present?token=... sets the cookie, the admin POST endpoints
+def test_present_cookie_authorizes_drive_posts(app_client):
+    """After /present?token=... sets the cookie, the drive POST endpoints
     should accept the request -- this is what makes the present-page
     keyboard shortcuts actually drive the session."""
     app_client.get("/present?token=secret")
-    r = app_client.post("/admin/activate", data={"qid": "q1"})
+    r = app_client.post("/drive/activate", data={"qid": "q1"})
     assert r.status_code == 303
 
 
@@ -135,10 +135,10 @@ def test_present_cookie_authorizes_admin_posts(app_client):
 
 
 def test_activate_question_via_post(app_client):
-    admin(app_client)
-    r = app_client.post("/admin/activate", data={"qid": "q1"})
+    drive(app_client)
+    r = app_client.post("/drive/activate", data={"qid": "q1"})
     assert r.status_code == 303
-    r = app_client.get("/admin")
+    r = app_client.get("/drive")
     assert "Pick a fruit" in r.text
     # /join now shows the active question
     r = app_client.get(f"/join/{SID}")
@@ -146,64 +146,85 @@ def test_activate_question_via_post(app_client):
 
 
 def test_next_from_idle_activates_first(app_client):
-    admin(app_client)
-    r = app_client.post("/admin/next")
+    drive(app_client)
+    r = app_client.post("/drive/next")
     assert r.status_code == 303
     r = app_client.get(f"/join/{SID}")
     assert "Pick a fruit" in r.text
 
 
 def test_next_past_last_ends_session(app_client):
-    admin(app_client)
-    app_client.post("/admin/activate", data={"qid": "qr"})  # last question
-    app_client.post("/admin/next")
+    drive(app_client)
+    app_client.post("/drive/activate", data={"qid": "qr"})  # last question
+    app_client.post("/drive/next")
     r = app_client.get(f"/join/{SID}")
     assert "Thanks, that's the last one" in r.text
 
 
 def test_prev_walks_backwards(app_client):
-    admin(app_client)
-    app_client.post("/admin/activate", data={"qid": "q3"})
-    app_client.post("/admin/prev")
+    drive(app_client)
+    app_client.post("/drive/activate", data={"qid": "q3"})
+    app_client.post("/drive/prev")
     r = app_client.get(f"/join/{SID}")
     assert "Why?" in r.text  # q2
 
 
 def test_prev_on_first_is_noop(app_client):
-    admin(app_client)
-    app_client.post("/admin/activate", data={"qid": "q1"})
-    app_client.post("/admin/prev")
+    drive(app_client)
+    app_client.post("/drive/activate", data={"qid": "q1"})
+    app_client.post("/drive/prev")
     r = app_client.get(f"/join/{SID}")
     assert "Pick a fruit" in r.text
 
 
+def test_prev_from_the_end_reopens_the_last_question(app_client):
+    """The thank-you screen is not a dead end: going back from it puts the
+    last question up again so it can be talked through."""
+    drive(app_client)
+    app_client.post("/drive/activate", data={"qid": "qr"})
+    app_client.post("/drive/next")  # past the last one -- ends the session
+    app_client.post("/drive/prev")
+    r = app_client.get(f"/join/{SID}")
+    assert "How was it?" in r.text
+    assert db.get_state(app_client.app.state.conn, SID)["ended"] is False
+
+
+def test_prev_while_idle_is_still_a_noop(app_client):
+    """Idle is before the first question, not after the last -- nothing to
+    go back to."""
+    drive(app_client)
+    app_client.post("/drive/prev")
+    r = app_client.get(f"/join/{SID}")
+    assert "Waiting for presenter" in r.text
+
+
 def test_clear_returns_to_idle(app_client):
-    admin(app_client)
-    app_client.post("/admin/activate", data={"qid": "q1"})
-    app_client.post("/admin/clear")
+    drive(app_client)
+    app_client.post("/drive/activate", data={"qid": "q1"})
+    app_client.post("/drive/clear")
     r = app_client.get(f"/join/{SID}")
     assert "Waiting for presenter" in r.text
 
 
 def test_end_session(app_client):
-    admin(app_client)
-    app_client.post("/admin/activate", data={"qid": "q1"})
-    app_client.post("/admin/end")
+    drive(app_client)
+    app_client.post("/drive/activate", data={"qid": "q1"})
+    app_client.post("/drive/end")
     r = app_client.get(f"/join/{SID}")
     assert "Thanks, that's the last one" in r.text
 
 
 def test_activating_after_end_reopens(app_client):
-    admin(app_client)
-    app_client.post("/admin/end")
-    app_client.post("/admin/activate", data={"qid": "q1"})
+    drive(app_client)
+    app_client.post("/drive/end")
+    app_client.post("/drive/activate", data={"qid": "q1"})
     r = app_client.get(f"/join/{SID}")
     assert "Pick a fruit" in r.text
 
 
-def test_admin_actions_require_admin_cookie(app_client):
-    # No prior /admin?token=... so no cookie yet.
-    r = app_client.post("/admin/activate", data={"qid": "q1"})
+def test_drive_actions_require_the_cookie(app_client):
+    # No prior /drive?token=... so no cookie yet.
+    r = app_client.post("/drive/activate", data={"qid": "q1"})
     assert r.status_code == 401
 
 
@@ -211,8 +232,8 @@ def test_admin_actions_require_admin_cookie(app_client):
 
 
 def test_answer_mc_records_response(app_client):
-    admin(app_client)
-    app_client.post("/admin/activate", data={"qid": "q1"})
+    drive(app_client)
+    app_client.post("/drive/activate", data={"qid": "q1"})
     r = app_client.post(f"/answer/{SID}", data={"question_id": "q1", "answer": "A"})
     assert r.status_code == 303
     r = app_client.get(f"/join/{SID}")
@@ -226,19 +247,19 @@ def test_answer_mc_records_response(app_client):
 def test_mc_resubmit_does_not_change_answer(app_client):
     """Issue #5: even if a malicious / impatient participant POSTs again,
     their first answer stands."""
-    admin(app_client)
-    app_client.post("/admin/activate", data={"qid": "q1"})
+    drive(app_client)
+    app_client.post("/drive/activate", data={"qid": "q1"})
     app_client.post(f"/answer/{SID}", data={"question_id": "q1", "answer": "A"})
     app_client.post(f"/answer/{SID}", data={"question_id": "q1", "answer": "B"})
-    r = app_client.get("/api/admin/state").json()
+    r = app_client.get("/api/drive/state").json()
     by_id = {o["id"]: o for o in r["results"]["q1"]["options"]}
     assert by_id["A"]["count"] == 1
     assert by_id["B"]["count"] == 0
 
 
 def test_answer_free_text_records_response(app_client):
-    admin(app_client)
-    app_client.post("/admin/activate", data={"qid": "q2"})
+    drive(app_client)
+    app_client.post("/drive/activate", data={"qid": "q2"})
     app_client.post(f"/answer/{SID}", data={"question_id": "q2", "answer": "because"})
     r = app_client.get(f"/join/{SID}")
     # Issue #6: the textarea is NOT pre-filled (so the participant can write
@@ -250,12 +271,12 @@ def test_answer_free_text_records_response(app_client):
 
 def test_answer_free_text_allows_multiple_submits(app_client):
     """Issue #6: free text is append-only -- submitting twice keeps both."""
-    admin(app_client)
-    app_client.post("/admin/activate", data={"qid": "q2"})
+    drive(app_client)
+    app_client.post("/drive/activate", data={"qid": "q2"})
     app_client.post(f"/answer/{SID}", data={"question_id": "q2", "answer": "first"})
     app_client.post(f"/answer/{SID}", data={"question_id": "q2", "answer": "second"})
-    # Both answers should be visible to the admin.
-    r = app_client.get("/admin")
+    # Both answers should be visible to the presenter.
+    r = app_client.get("/drive")
     assert "first" in r.text
     assert "second" in r.text
     # Participant page hint reflects the count.
@@ -264,8 +285,8 @@ def test_answer_free_text_allows_multiple_submits(app_client):
 
 
 def test_answer_invalid_mc_option_ignored(app_client):
-    admin(app_client)
-    app_client.post("/admin/activate", data={"qid": "q1"})
+    drive(app_client)
+    app_client.post("/drive/activate", data={"qid": "q1"})
     app_client.post(f"/answer/{SID}", data={"question_id": "q1", "answer": "BOGUS"})
     r = app_client.get(f"/join/{SID}")
     # No "you answered" lock because we silently dropped the bogus value;
@@ -275,7 +296,7 @@ def test_answer_invalid_mc_option_ignored(app_client):
 
 
 def test_answer_for_inactive_question_ignored(app_client):
-    admin(app_client)
+    drive(app_client)
     # No active question -> /answer should be a no-op.
     r = app_client.post(f"/answer/{SID}", data={"question_id": "q1", "answer": "A"})
     assert r.status_code == 303
@@ -286,13 +307,13 @@ def test_answer_for_inactive_question_ignored(app_client):
 # --- results, moderation, CSV (M4) -------------------------------------------
 
 
-def test_admin_renders_mc_bars(app_client):
-    admin(app_client)
-    app_client.post("/admin/activate", data={"qid": "q1"})
+def test_drive_renders_mc_bars(app_client):
+    drive(app_client)
+    app_client.post("/drive/activate", data={"qid": "q1"})
     submit(app_client, "q1", "A", "p-alice")
     submit(app_client, "q1", "B", "p-bob")
     submit(app_client, "q1", "A", "p-carol")
-    r = app_client.get("/admin")
+    r = app_client.get("/drive")
     # Expect counts visible: A=2, B=1
     assert "Apple" in r.text
     assert "Banana" in r.text
@@ -300,12 +321,12 @@ def test_admin_renders_mc_bars(app_client):
     assert "3 responses" in r.text
 
 
-def test_admin_free_text_approve_toggle(app_client):
-    admin(app_client)
-    app_client.post("/admin/activate", data={"qid": "q2"})
+def test_drive_free_text_approve_toggle(app_client):
+    drive(app_client)
+    app_client.post("/drive/activate", data={"qid": "q2"})
     submit(app_client, "q2", "first answer", "p-alice")
     submit(app_client, "q2", "second answer", "p-bob")
-    r = app_client.get("/admin")
+    r = app_client.get("/drive")
     assert "first answer" in r.text
     assert "second answer" in r.text
     # Find the response id of the first answer for the approve POST.
@@ -315,8 +336,8 @@ def test_admin_free_text_approve_toggle(app_client):
     rows = dbm.list_text_responses(c, "blue-otter-1234", "q2")
     rid = next(r2["id"] for r2 in rows if r2["answer"] == "first answer")
     c.close()
-    app_client.post("/admin/approve", data={"qid": "q2", "rid": rid, "approved": "1"})
-    r = app_client.get("/admin")
+    app_client.post("/drive/approve", data={"qid": "q2", "rid": rid, "approved": "1"})
+    r = app_client.get("/drive")
     assert "Unapprove" in r.text  # button text flips after approval
 
 
@@ -324,8 +345,8 @@ def test_present_mc_results_hidden_until_revealed(app_client):
     """MC bars on /present are hidden until the presenter presses R or C.
     The total count is always shown so the audience knows responses are
     coming in."""
-    admin(app_client)
-    app_client.post("/admin/activate", data={"qid": "q1"})
+    drive(app_client)
+    app_client.post("/drive/activate", data={"qid": "q1"})
     submit(app_client, "q1", "A", "p-alice")
     r = app_client.get("/present")
     assert "1 response received" in r.text
@@ -333,22 +354,50 @@ def test_present_mc_results_hidden_until_revealed(app_client):
     # bar is marked unrevealed -- CSS hides the fill and the count.
     assert 'class="bar unrevealed"' in r.text
     # After R, the same bars lose the unrevealed marker.
-    app_client.post("/admin/reveal", data={"on": "1"})
+    app_client.post("/drive/reveal", data={"on": "1"})
     r = app_client.get("/present")
     assert "Apple" in r.text
     assert "unrevealed" not in r.text
     assert "1 (100%)" in r.text
 
 
+def test_reveal_toggles_sit_on_the_active_question(app_client):
+    """R and C are per-question, so their buttons are too. Only the active
+    question gets a pair -- on any other one they would describe state that
+    the next activate resets anyway."""
+    drive(app_client)
+    app_client.post("/drive/activate", data={"qid": "q1"})
+    r = app_client.get("/drive")
+    assert r.text.count('class="toggle-btn replies') == 1
+    assert "Reveal distribution (R)" in r.text
+    assert "Show correct (C)" in r.text
+
+
+def test_show_correct_button_only_where_there_is_a_correct_answer(app_client):
+    drive(app_client)
+    app_client.post("/drive/activate", data={"qid": "q3"})  # MC, no correct option
+    r = app_client.get("/drive")
+    assert "Reveal distribution (R)" in r.text
+    assert "Show correct (C)" not in r.text
+
+
+def test_free_text_reveal_button_says_answers(app_client):
+    """"Distribution" is the wrong word for a list of typed answers."""
+    drive(app_client)
+    app_client.post("/drive/activate", data={"qid": "q2"})
+    r = app_client.get("/drive")
+    assert "Hide answers (R)" in r.text  # free text opens revealed
+
+
 def test_present_show_correct_alone_reveals_bars(app_client):
     """Pressing C (Show correct) on its own should be enough to reveal the
     bar chart -- otherwise the highlight has nothing to land on. This was
     the 'reveal still does not work' bug."""
-    admin(app_client)
-    app_client.post("/admin/activate", data={"qid": "q1"})
+    drive(app_client)
+    app_client.post("/drive/activate", data={"qid": "q1"})
     submit(app_client, "q1", "B", "p-alice")  # the correct option
     # Note: not pressing R. Just C.
-    app_client.post("/admin/reveal_correct", data={"on": "1"})
+    app_client.post("/drive/reveal_correct", data={"on": "1"})
     r = app_client.get("/present")
     assert "Apple" in r.text
     assert "Banana" in r.text
@@ -357,8 +406,8 @@ def test_present_show_correct_alone_reveals_bars(app_client):
 
 
 def test_present_free_text_shows_count_only_by_default(app_client):
-    admin(app_client)
-    app_client.post("/admin/activate", data={"qid": "q2"})
+    drive(app_client)
+    app_client.post("/drive/activate", data={"qid": "q2"})
     submit(app_client, "q2", "secret thought", "p-alice")
     r = app_client.get("/present")
     assert "1 response" in r.text
@@ -366,8 +415,8 @@ def test_present_free_text_shows_count_only_by_default(app_client):
 
 
 def test_present_shows_only_approved_when_revealed(app_client):
-    admin(app_client)
-    app_client.post("/admin/activate", data={"qid": "q2"})
+    drive(app_client)
+    app_client.post("/drive/activate", data={"qid": "q2"})
     submit(app_client, "q2", "ok answer", "p-alice")
     submit(app_client, "q2", "off-color answer", "p-bob")
 
@@ -377,19 +426,19 @@ def test_present_shows_only_approved_when_revealed(app_client):
     rows = dbm.list_text_responses(c, "blue-otter-1234", "q2")
     rid_ok = next(r["id"] for r in rows if r["answer"] == "ok answer")
     c.close()
-    app_client.post("/admin/approve", data={"qid": "q2", "rid": rid_ok, "approved": "1"})
+    app_client.post("/drive/approve", data={"qid": "q2", "rid": rid_ok, "approved": "1"})
     # Reveal toggle ON.
-    app_client.post("/admin/reveal", data={"on": "1"})
+    app_client.post("/drive/reveal", data={"on": "1"})
     r = app_client.get("/present")
     assert "ok answer" in r.text
     assert "off-color answer" not in r.text  # never shown until approved
 
 
 def test_export_csv_endpoint(app_client):
-    admin(app_client)
-    app_client.post("/admin/activate", data={"qid": "q1"})
+    drive(app_client)
+    app_client.post("/drive/activate", data={"qid": "q1"})
     submit(app_client, "q1", "A", "p-alice")
-    r = app_client.get("/admin/export.csv")
+    r = app_client.get("/drive/export.csv")
     assert r.status_code == 200
     assert r.headers["content-type"].startswith("text/csv")
     assert "session_id,question_id,question_type,prompt" in r.text
@@ -397,8 +446,8 @@ def test_export_csv_endpoint(app_client):
     assert "Apple" in r.text
 
 
-def test_export_csv_requires_admin(app_client):
-    r = app_client.get("/admin/export.csv")
+def test_export_csv_requires_the_cookie(app_client):
+    r = app_client.get("/drive/export.csv")
     assert r.status_code == 401
 
 
@@ -423,9 +472,9 @@ def test_qr_png_also_written_next_to_the_database(app_client):
 
 
 def test_api_participant_state_returns_phase_and_heartbeats(app_client):
-    admin(app_client)
-    app_client.post("/admin/activate", data={"qid": "q1"})
-    # Ensure no participant cookie carried over from admin actions.
+    drive(app_client)
+    app_client.post("/drive/activate", data={"qid": "q1"})
+    # Ensure no participant cookie carried over from drive actions.
     app_client.cookies.delete("participant_id")
     r = app_client.get(f"/api/participant/state/{SID}")
     assert r.status_code == 200
@@ -434,17 +483,17 @@ def test_api_participant_state_returns_phase_and_heartbeats(app_client):
     assert payload["active_question"]["id"] == "q1"
     # The poll set a participant cookie; subsequent polls should reuse it.
     assert "participant_id" in app_client.cookies
-    # The poll should have heartbeated -> connected_count >= 1 on /admin.
-    r = app_client.get("/api/admin/state")
+    # The poll should have heartbeated -> connected_count >= 1 on /drive.
+    r = app_client.get("/api/drive/state")
     assert r.json()["connected_count"] >= 1
 
 
-def test_api_admin_state_returns_results(app_client):
-    admin(app_client)
-    app_client.post("/admin/activate", data={"qid": "q1"})
+def test_api_drive_state_returns_results(app_client):
+    drive(app_client)
+    app_client.post("/drive/activate", data={"qid": "q1"})
     submit(app_client, "q1", "A", "p-alice")
     submit(app_client, "q1", "B", "p-bob")
-    r = app_client.get("/api/admin/state")
+    r = app_client.get("/api/drive/state")
     assert r.status_code == 200
     p = r.json()
     assert p["phase"] == "active"
@@ -454,8 +503,8 @@ def test_api_admin_state_returns_results(app_client):
 
 
 def test_api_present_state_includes_active_results(app_client):
-    admin(app_client)
-    app_client.post("/admin/activate", data={"qid": "q2"})
+    drive(app_client)
+    app_client.post("/drive/activate", data={"qid": "q2"})
     submit(app_client, "q2", "first", "p-alice")
     r = app_client.get("/api/present/state")
     p = r.json()
@@ -466,27 +515,27 @@ def test_api_present_state_includes_active_results(app_client):
     assert p["reveal_free_text"] is True
 
 
-def test_admin_override_sets_public_url(app_client):
-    admin(app_client)
-    r = app_client.post("/admin/override", data={"url": "https://abc.example"})
+def test_drive_override_sets_public_url(app_client):
+    drive(app_client)
+    r = app_client.post("/drive/override", data={"url": "https://abc.example"})
     assert r.status_code == 303
-    r = app_client.get("/admin")
+    r = app_client.get("/drive")
     assert "https://abc.example" in r.text
     assert "source: override" in r.text
 
 
-def test_admin_override_clear(app_client):
-    admin(app_client)
-    app_client.post("/admin/override", data={"url": "https://abc.example"})
-    app_client.post("/admin/override", data={"url": ""})
-    r = app_client.get("/admin")
+def test_drive_override_clear(app_client):
+    drive(app_client)
+    app_client.post("/drive/override", data={"url": "https://abc.example"})
+    app_client.post("/drive/override", data={"url": ""})
+    r = app_client.get("/drive")
     assert "source: override" not in r.text
 
 
 def test_join_url_uses_forwarded_host(app_client):
-    admin(app_client)
+    drive(app_client)
     r = app_client.get(
-        "/admin",
+        "/drive",
         headers={
             "x-forwarded-host": "tunnel.cfargotunnel.com",
             "x-forwarded-proto": "https",
@@ -500,19 +549,19 @@ def test_tunnel_url_used_when_no_override(app_client):
     # Simulates what cli._start_cloudflared does after parsing the URL out of
     # cloudflared's stderr: it sets app.state.tunnel_url. compute_base_url
     # should pick that up for local requests (no x-forwarded-host).
-    admin(app_client)
+    drive(app_client)
     app_client.app.state.tunnel_url = "https://abc-def-ghi.trycloudflare.com"
-    r = app_client.get("/admin")
+    r = app_client.get("/drive")
     assert "https://abc-def-ghi.trycloudflare.com/join" in r.text
     assert "source: tunnel" in r.text
 
 
 def test_manual_override_beats_tunnel_url(app_client):
-    # Manual override (typed in /admin form) wins over the auto tunnel URL.
-    admin(app_client)
+    # Manual override (typed in /drive form) wins over the auto tunnel URL.
+    drive(app_client)
     app_client.app.state.tunnel_url = "https://abc-def-ghi.trycloudflare.com"
-    app_client.post("/admin/override", data={"url": "https://my.example"})
-    r = app_client.get("/admin")
+    app_client.post("/drive/override", data={"url": "https://my.example"})
+    r = app_client.get("/drive")
     assert "https://my.example/join" in r.text
     assert "source: override" in r.text
 
@@ -521,9 +570,9 @@ def test_manual_override_beats_tunnel_url(app_client):
 
 
 def test_results_include_is_correct(app_client):
-    admin(app_client)
-    app_client.post("/admin/activate", data={"qid": "q1"})
-    r = app_client.get("/api/admin/state").json()
+    drive(app_client)
+    app_client.post("/drive/activate", data={"qid": "q1"})
+    r = app_client.get("/api/drive/state").json()
     opts = r["results"]["q1"]["options"]
     by_id = {o["id"]: o for o in opts}
     assert by_id["A"]["is_correct"] is False
@@ -534,40 +583,40 @@ def test_results_include_is_correct(app_client):
 
 
 def test_reveal_correct_endpoint(app_client):
-    admin(app_client)
-    app_client.post("/admin/activate", data={"qid": "q1"})
-    assert app_client.get("/api/admin/state").json()["reveal_correct"] is False
-    app_client.post("/admin/reveal_correct", data={"on": "1"})
-    assert app_client.get("/api/admin/state").json()["reveal_correct"] is True
-    app_client.post("/admin/reveal_correct", data={"on": "0"})
-    assert app_client.get("/api/admin/state").json()["reveal_correct"] is False
+    drive(app_client)
+    app_client.post("/drive/activate", data={"qid": "q1"})
+    assert app_client.get("/api/drive/state").json()["reveal_correct"] is False
+    app_client.post("/drive/reveal_correct", data={"on": "1"})
+    assert app_client.get("/api/drive/state").json()["reveal_correct"] is True
+    app_client.post("/drive/reveal_correct", data={"on": "0"})
+    assert app_client.get("/api/drive/state").json()["reveal_correct"] is False
 
 
 def test_advancing_to_next_question_resets_reveal_correct(app_client):
-    admin(app_client)
-    app_client.post("/admin/activate", data={"qid": "q1"})
-    app_client.post("/admin/reveal_correct", data={"on": "1"})
-    assert app_client.get("/api/admin/state").json()["reveal_correct"] is True
+    drive(app_client)
+    app_client.post("/drive/activate", data={"qid": "q1"})
+    app_client.post("/drive/reveal_correct", data={"on": "1"})
+    assert app_client.get("/api/drive/state").json()["reveal_correct"] is True
     # Pressing Next (or activating any other question) should reset to off.
-    app_client.post("/admin/next")
-    assert app_client.get("/api/admin/state").json()["reveal_correct"] is False
+    app_client.post("/drive/next")
+    assert app_client.get("/api/drive/state").json()["reveal_correct"] is False
 
 
-def test_admin_renders_correct_class_when_revealed(app_client):
-    admin(app_client)
-    app_client.post("/admin/activate", data={"qid": "q1"})
+def test_drive_renders_correct_class_when_revealed(app_client):
+    drive(app_client)
+    app_client.post("/drive/activate", data={"qid": "q1"})
     submit(app_client, "q1", "A", "p-alice")  # the wrong answer
     submit(app_client, "q1", "B", "p-bob")  # the right answer
-    app_client.post("/admin/reveal_correct", data={"on": "1"})
-    r = app_client.get("/admin")
+    app_client.post("/drive/reveal_correct", data={"on": "1"})
+    r = app_client.get("/drive")
     assert 'class="bar correct"' in r.text
     assert 'class="bar dimmed"' in r.text
 
 
 def test_present_renders_correct_class_when_revealed(app_client):
-    admin(app_client)
-    app_client.post("/admin/activate", data={"qid": "q1"})
-    app_client.post("/admin/reveal_correct", data={"on": "1"})
+    drive(app_client)
+    app_client.post("/drive/activate", data={"qid": "q1"})
+    app_client.post("/drive/reveal_correct", data={"on": "1"})
     r = app_client.get("/present")
     assert "correct" in r.text
     assert "dimmed" in r.text
@@ -576,41 +625,41 @@ def test_present_renders_correct_class_when_revealed(app_client):
 # --- DB filename + source filename ------------------------------------------
 
 
-def test_admin_approve_all_bulk_approves(app_client):
-    admin(app_client)
-    app_client.post("/admin/activate", data={"qid": "q2"})
+def test_drive_approve_all_bulk_approves(app_client):
+    drive(app_client)
+    app_client.post("/drive/activate", data={"qid": "q2"})
     submit(app_client, "q2", "first", "p-alice")
     submit(app_client, "q2", "second", "p-bob")
     submit(app_client, "q2", "third", "p-carol")
-    r = app_client.post("/admin/approve_all")
+    r = app_client.post("/drive/approve_all")
     assert r.status_code == 303
     # All three should now appear with the Unapprove button.
-    page = app_client.get("/admin").text
+    page = app_client.get("/drive").text
     assert page.count("Unapprove") >= 3
     # And /present (with reveal on) shows all three.
-    app_client.post("/admin/reveal", data={"on": "1"})
+    app_client.post("/drive/reveal", data={"on": "1"})
     pres = app_client.get("/present").text
     for txt in ("first", "second", "third"):
         assert txt in pres
 
 
-def test_admin_approve_all_idempotent_picks_up_new(app_client):
-    admin(app_client)
-    app_client.post("/admin/activate", data={"qid": "q2"})
+def test_drive_approve_all_idempotent_picks_up_new(app_client):
+    drive(app_client)
+    app_client.post("/drive/activate", data={"qid": "q2"})
     submit(app_client, "q2", "first", "p-alice")
-    app_client.post("/admin/approve_all")
+    app_client.post("/drive/approve_all")
     # New answer arrives; A again accepts it without unapproving the old one.
     submit(app_client, "q2", "second", "p-bob")
-    app_client.post("/admin/approve_all")
-    page = app_client.get("/admin").text
+    app_client.post("/drive/approve_all")
+    page = app_client.get("/drive").text
     assert page.count("Unapprove") >= 2
 
 
-def test_admin_approve_all_noop_for_mc(app_client):
-    admin(app_client)
-    app_client.post("/admin/activate", data={"qid": "q1"})  # multiple_choice
+def test_drive_approve_all_noop_for_mc(app_client):
+    drive(app_client)
+    app_client.post("/drive/activate", data={"qid": "q1"})  # multiple_choice
     submit(app_client, "q1", "A", "p-alice")
-    r = app_client.post("/admin/approve_all")
+    r = app_client.post("/drive/approve_all")
     assert r.status_code == 303
     # Nothing should have ended up in approved_free_text.
     from lykkepoller import db as dbm
@@ -620,8 +669,8 @@ def test_admin_approve_all_noop_for_mc(app_client):
     c.close()
 
 
-def test_admin_approve_all_requires_admin(app_client):
-    r = app_client.post("/admin/approve_all")
+def test_drive_approve_all_requires_the_cookie(app_client):
+    r = app_client.post("/drive/approve_all")
     assert r.status_code == 401
 
 
@@ -639,8 +688,8 @@ def test_session_records_source_and_theme(app_client):
 
 
 def test_rating_renders_buttons_on_join(app_client):
-    admin(app_client)
-    app_client.post("/admin/activate", data={"qid": "qr"})
+    drive(app_client)
+    app_client.post("/drive/activate", data={"qid": "qr"})
     r = app_client.get(f"/join/{SID}")
     assert r.status_code == 200
     assert "How was it?" in r.text
@@ -653,11 +702,11 @@ def test_rating_renders_buttons_on_join(app_client):
 
 
 def test_rating_records_response(app_client):
-    admin(app_client)
-    app_client.post("/admin/activate", data={"qid": "qr"})
+    drive(app_client)
+    app_client.post("/drive/activate", data={"qid": "qr"})
     r = submit(app_client, "qr", "4", "p-alice")
     assert r.status_code == 303
-    state = app_client.get("/api/admin/state").json()
+    state = app_client.get("/api/drive/state").json()
     res = state["results"]["qr"]
     assert res["type"] == "rating"
     assert res["total"] == 1
@@ -668,11 +717,11 @@ def test_rating_records_response(app_client):
 
 def test_rating_is_one_shot_lock(app_client):
     """Like MC, a second submit is silently dropped (issue #5 semantics)."""
-    admin(app_client)
-    app_client.post("/admin/activate", data={"qid": "qr"})
+    drive(app_client)
+    app_client.post("/drive/activate", data={"qid": "qr"})
     submit(app_client, "qr", "2", "p-alice")
     submit(app_client, "qr", "5", "p-alice")
-    res = app_client.get("/api/admin/state").json()["results"]["qr"]
+    res = app_client.get("/api/drive/state").json()["results"]["qr"]
     by_step = {b["step"]: b["count"] for b in res["buckets"]}
     assert by_step[2] == 1
     assert by_step[5] == 0
@@ -684,18 +733,18 @@ def test_rating_is_one_shot_lock(app_client):
 
 
 def test_rating_rejects_out_of_range(app_client):
-    admin(app_client)
-    app_client.post("/admin/activate", data={"qid": "qr"})
+    drive(app_client)
+    app_client.post("/drive/activate", data={"qid": "qr"})
     submit(app_client, "qr", "0", "p-alice")
     submit(app_client, "qr", "6", "p-bob")
     submit(app_client, "qr", "junk", "p-carol")
-    res = app_client.get("/api/admin/state").json()["results"]["qr"]
+    res = app_client.get("/api/drive/state").json()["results"]["qr"]
     assert res["total"] == 0
 
 
 def test_present_rating_hidden_until_revealed(app_client):
-    admin(app_client)
-    app_client.post("/admin/activate", data={"qid": "qr"})
+    drive(app_client)
+    app_client.post("/drive/activate", data={"qid": "qr"})
     submit(app_client, "qr", "3", "p-alice")
     submit(app_client, "qr", "5", "p-bob")
     page = app_client.get("/present").text
@@ -704,7 +753,7 @@ def test_present_rating_hidden_until_revealed(app_client):
     assert 'class="bar"' not in page
     # average not leaked either
     assert "avg" not in page
-    app_client.post("/admin/reveal", data={"on": "1"})
+    app_client.post("/drive/reveal", data={"on": "1"})
     page = app_client.get("/present").text
     assert "Bad" in page  # end label
     assert "Good" in page
@@ -712,12 +761,12 @@ def test_present_rating_hidden_until_revealed(app_client):
 
 
 def test_rating_average_computed(app_client):
-    admin(app_client)
-    app_client.post("/admin/activate", data={"qid": "qr"})
+    drive(app_client)
+    app_client.post("/drive/activate", data={"qid": "qr"})
     submit(app_client, "qr", "1", "p-a")
     submit(app_client, "qr", "5", "p-b")
     submit(app_client, "qr", "3", "p-c")
-    res = app_client.get("/api/admin/state").json()["results"]["qr"]
+    res = app_client.get("/api/drive/state").json()["results"]["qr"]
     assert res["average"] == 3.0
 
 
@@ -727,56 +776,56 @@ def test_rating_average_computed(app_client):
 def test_free_text_opens_revealed(app_client):
     """Nothing is approved yet, so there is nothing to leak -- and the
     presenter wants approved answers to appear as they tick them off."""
-    admin(app_client)
-    app_client.post("/admin/activate", data={"qid": "q2"})
-    assert app_client.get("/api/admin/state").json()["reveal_free_text"] is True
+    drive(app_client)
+    app_client.post("/drive/activate", data={"qid": "q2"})
+    assert app_client.get("/api/drive/state").json()["reveal_free_text"] is True
 
 
 def test_multiple_choice_opens_hidden(app_client):
     """The opposite: showing bars early lets the room see the leader and
     follow it."""
-    admin(app_client)
-    app_client.post("/admin/activate", data={"qid": "q1"})
-    assert app_client.get("/api/admin/state").json()["reveal_free_text"] is False
+    drive(app_client)
+    app_client.post("/drive/activate", data={"qid": "q1"})
+    assert app_client.get("/api/drive/state").json()["reveal_free_text"] is False
 
 
 def test_rating_opens_hidden(app_client):
-    admin(app_client)
-    app_client.post("/admin/activate", data={"qid": "qr"})
-    assert app_client.get("/api/admin/state").json()["reveal_free_text"] is False
+    drive(app_client)
+    app_client.post("/drive/activate", data={"qid": "qr"})
+    assert app_client.get("/api/drive/state").json()["reveal_free_text"] is False
 
 
 def test_moving_between_types_flips_the_default(app_client):
-    admin(app_client)
-    app_client.post("/admin/activate", data={"qid": "q2"})
-    assert app_client.get("/api/admin/state").json()["reveal_free_text"] is True
-    app_client.post("/admin/activate", data={"qid": "q1"})
-    assert app_client.get("/api/admin/state").json()["reveal_free_text"] is False
+    drive(app_client)
+    app_client.post("/drive/activate", data={"qid": "q2"})
+    assert app_client.get("/api/drive/state").json()["reveal_free_text"] is True
+    app_client.post("/drive/activate", data={"qid": "q1"})
+    assert app_client.get("/api/drive/state").json()["reveal_free_text"] is False
 
 
 def _answers(client, qid="q2"):
-    return client.get("/api/admin/state").json()["results"][qid]["answers"]
+    return client.get("/api/drive/state").json()["results"][qid]["answers"]
 
 
 def test_reject_marks_the_answer(app_client):
-    admin(app_client)
-    app_client.post("/admin/activate", data={"qid": "q2"})
+    drive(app_client)
+    app_client.post("/drive/activate", data={"qid": "q2"})
     submit(app_client, "q2", "rubbish", "p-alice")
     rid = _answers(app_client)[0]["id"]
-    app_client.post("/admin/reject", data={"qid": "q2", "rid": rid, "rejected": "1"})
+    app_client.post("/drive/reject", data={"qid": "q2", "rid": rid, "rejected": "1"})
     assert _answers(app_client)[0]["rejected"] is True
 
 
 def test_approve_all_skips_rejected(app_client):
     """The point of the x: cross out the bad ones, then take the rest in one press."""
-    admin(app_client)
-    app_client.post("/admin/activate", data={"qid": "q2"})
+    drive(app_client)
+    app_client.post("/drive/activate", data={"qid": "q2"})
     submit(app_client, "q2", "good one", "p-alice")
     submit(app_client, "q2", "rubbish", "p-bob")
     submit(app_client, "q2", "also good", "p-carol")
     bad = next(a["id"] for a in _answers(app_client) if a["answer"] == "rubbish")
-    app_client.post("/admin/reject", data={"qid": "q2", "rid": bad, "rejected": "1"})
-    app_client.post("/admin/approve_all")
+    app_client.post("/drive/reject", data={"qid": "q2", "rid": bad, "rejected": "1"})
+    app_client.post("/drive/approve_all")
     got = {a["answer"]: a["approved"] for a in _answers(app_client)}
     assert got == {"good one": True, "rubbish": False, "also good": True}
 
@@ -784,76 +833,76 @@ def test_approve_all_skips_rejected(app_client):
 def test_rejecting_an_approved_answer_unapproves_it(app_client):
     """The x always wins -- the presenter clicking it wants that off the
     projector now, not after another click."""
-    admin(app_client)
-    app_client.post("/admin/activate", data={"qid": "q2"})
+    drive(app_client)
+    app_client.post("/drive/activate", data={"qid": "q2"})
     submit(app_client, "q2", "oops", "p-alice")
     rid = _answers(app_client)[0]["id"]
-    app_client.post("/admin/approve", data={"qid": "q2", "rid": rid, "approved": "1"})
+    app_client.post("/drive/approve", data={"qid": "q2", "rid": rid, "approved": "1"})
     assert _answers(app_client)[0]["approved"] is True
-    app_client.post("/admin/reject", data={"qid": "q2", "rid": rid, "rejected": "1"})
+    app_client.post("/drive/reject", data={"qid": "q2", "rid": rid, "rejected": "1"})
     a = _answers(app_client)[0]
     assert (a["approved"], a["rejected"]) == (False, True)
 
 
 def test_unreject_puts_it_back_in_the_running(app_client):
-    admin(app_client)
-    app_client.post("/admin/activate", data={"qid": "q2"})
+    drive(app_client)
+    app_client.post("/drive/activate", data={"qid": "q2"})
     submit(app_client, "q2", "second thoughts", "p-alice")
     rid = _answers(app_client)[0]["id"]
-    app_client.post("/admin/reject", data={"qid": "q2", "rid": rid, "rejected": "1"})
-    app_client.post("/admin/reject", data={"qid": "q2", "rid": rid, "rejected": "0"})
+    app_client.post("/drive/reject", data={"qid": "q2", "rid": rid, "rejected": "1"})
+    app_client.post("/drive/reject", data={"qid": "q2", "rid": rid, "rejected": "0"})
     assert _answers(app_client)[0]["rejected"] is False
-    app_client.post("/admin/approve_all")
+    app_client.post("/drive/approve_all")
     assert _answers(app_client)[0]["approved"] is True
 
 
 def test_rejected_answer_never_reaches_present(app_client):
-    admin(app_client)
-    app_client.post("/admin/activate", data={"qid": "q2"})
+    drive(app_client)
+    app_client.post("/drive/activate", data={"qid": "q2"})
     submit(app_client, "q2", "keep this", "p-alice")
     submit(app_client, "q2", "hide this", "p-bob")
     bad = next(a["id"] for a in _answers(app_client) if a["answer"] == "hide this")
-    app_client.post("/admin/reject", data={"qid": "q2", "rid": bad, "rejected": "1"})
-    app_client.post("/admin/approve_all")
+    app_client.post("/drive/reject", data={"qid": "q2", "rid": bad, "rejected": "1"})
+    app_client.post("/drive/approve_all")
     body = app_client.get("/present").text
     assert "keep this" in body
     assert "hide this" not in body
 
 
 def test_present_renders_answers_as_cards(app_client):
-    admin(app_client)
-    app_client.post("/admin/activate", data={"qid": "q2"})
+    drive(app_client)
+    app_client.post("/drive/activate", data={"qid": "q2"})
     submit(app_client, "q2", "an answer", "p-alice")
-    app_client.post("/admin/approve_all")
+    app_client.post("/drive/approve_all")
     body = app_client.get("/present").text
     assert 'class="answer-cards"' in body
     assert 'class="answer-card"' in body
 
 
-def test_reject_requires_admin(app_client):
-    r = app_client.post("/admin/reject", data={"qid": "q2", "rid": 1, "rejected": "1"})
+def test_reject_requires_the_cookie(app_client):
+    r = app_client.post("/drive/reject", data={"qid": "q2", "rid": 1, "rejected": "1"})
     assert r.status_code == 401
 
 
 def test_present_card_count_drives_the_size(app_client):
     """style.css sizes the cards from --answer-count, so the number has to be
     in the markup and has to be right."""
-    admin(app_client)
-    app_client.post("/admin/activate", data={"qid": "q2"})
+    drive(app_client)
+    app_client.post("/drive/activate", data={"qid": "q2"})
     for i in range(7):
         submit(app_client, "q2", f"answer {i}", f"p-{i}")
-    app_client.post("/admin/approve_all")
+    app_client.post("/drive/approve_all")
     assert "--answer-count: 7" in app_client.get("/present").text
 
 
 def test_present_card_count_follows_rejections(app_client):
-    admin(app_client)
-    app_client.post("/admin/activate", data={"qid": "q2"})
+    drive(app_client)
+    app_client.post("/drive/activate", data={"qid": "q2"})
     for i in range(3):
         submit(app_client, "q2", f"answer {i}", f"p-{i}")
     bad = _answers(app_client)[1]["id"]
-    app_client.post("/admin/reject", data={"qid": "q2", "rid": bad, "rejected": "1"})
-    app_client.post("/admin/approve_all")
+    app_client.post("/drive/reject", data={"qid": "q2", "rid": bad, "rejected": "1"})
+    app_client.post("/drive/approve_all")
     assert "--answer-count: 2" in app_client.get("/present").text
 
 
@@ -898,13 +947,13 @@ def test_present_page_seeds_the_join_url_for_comparison(app_client):
     assert 'data-join-url="' in app_client.get("/present").text
 
 
-def test_admin_state_carries_the_join_url_and_source(app_client):
-    admin(app_client)
-    d = app_client.get("/api/admin/state").json()
+def test_drive_state_carries_the_join_url_and_source(app_client):
+    drive(app_client)
+    d = app_client.get("/api/drive/state").json()
     assert d["join_url"].endswith(f"/join/{SID}")
     assert d["join_url_source"] == "request"  # TestClient's host is "testserver"
     app_client.app.state.tunnel_url = "https://fluffy-cat.trycloudflare.com"
-    d = app_client.get("/api/admin/state").json()
+    d = app_client.get("/api/drive/state").json()
     assert d["join_url_source"] == "tunnel"
 
 
@@ -927,8 +976,8 @@ def test_pages_version_their_static_urls(app_client):
     from lykkepoller.app import asset_version
 
     v = asset_version()
-    admin(app_client)
-    for path in ("/admin", "/present", f"/join/{SID}"):
+    drive(app_client)
+    for path in ("/drive", "/present", f"/join/{SID}"):
         body = app_client.get(path).text
         assert f"/static/app.js?v={v}" in body, path
         assert f"/static/style.css?v={v}" in body, path
@@ -953,4 +1002,4 @@ def test_versioned_url_still_serves_the_file(app_client):
 
     r = app_client.get(f"/static/app.js?v={asset_version()}")
     assert r.status_code == 200
-    assert "admin/reject" in r.text
+    assert "drive/reject" in r.text

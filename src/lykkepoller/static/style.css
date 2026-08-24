@@ -78,10 +78,10 @@ body.participant .submitted {
   background: #e8f5e9; border-radius: 6px; font-size: 0.95rem;
 }
 
-/* --- admin ----------------------------------------------------------- */
-body.admin main { max-width: 1100px; }
-.admin-header { display: flex; justify-content: space-between; gap: 2rem; flex-wrap: wrap; }
-.admin-header h1 { margin-bottom: 0.25rem; }
+/* --- drive ----------------------------------------------------------- */
+body.drive main { max-width: 1100px; }
+.drive-header { display: flex; justify-content: space-between; gap: 2rem; flex-wrap: wrap; }
+.drive-header h1 { margin-bottom: 0.25rem; }
 .join-block { font-size: 0.95rem; }
 .override-form input { width: 16rem; padding: 0.4rem; }
 
@@ -122,15 +122,23 @@ body.admin main { max-width: 1100px; }
 .question-item.answering.correct-revealed { box-shadow: inset -8px 0 0 0 #2e7d32; }
 .question-item.answering.revealed.correct-revealed { box-shadow: inset 8px 0 0 0 #2a6e0a, inset -8px 0 0 0 #2e7d32; }
 
-.reveal-badge {
-  display: inline-block; padding: 0.25rem 0.7rem; border-radius: 999px;
+/* The R and C toggles, on the question they act on. They are the reveal
+   badges they replaced -- the colour still says what /present is showing --
+   with the press folded in, so there is one thing to look at instead of a
+   badge here and a button at the top of the page. */
+.q-controls { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-top: 0.6rem; }
+.q-controls:empty { display: none; }
+.q-controls form { margin: 0; }
+.toggle-btn {
+  padding: 0.35rem 0.9rem; border-radius: 999px;
   font-size: 0.85rem; font-weight: 600; letter-spacing: 0.03em;
+  border: 1px solid transparent; cursor: pointer;
 }
-.reveal-badge.replies.on { background: #2a6e0a; color: #fff; }
-.reveal-badge.replies.off { background: #f4e5cc; color: #7a4a00; }
-.reveal-badge.correct.on { background: #2e7d32; color: #fff; }
-.reveal-badge.correct.on::before { content: "✓ "; }
-.reveal-badge.correct.off { background: #e6e6e6; color: #555; }
+.toggle-btn.replies.on { background: #2a6e0a; color: #fff; }
+.toggle-btn.replies.off { background: #f4e5cc; color: #7a4a00; }
+.toggle-btn.correct.on { background: #2e7d32; color: #fff; }
+.toggle-btn.correct.on::before { content: "✓ "; }
+.toggle-btn.correct.off { background: #e6e6e6; color: #555; }
 .q-head { display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap; }
 .q-head .inline { margin-left: auto; }
 .q-results { margin-top: 0.5rem; }
@@ -246,7 +254,7 @@ body.present .bar-count { font-size: 1.2rem; }
 /* A theme file (static/themes/*.css) redefines nothing but the variables
    below. /present then maps them onto the polling colours, so the prompt,
    the result bars, the QR caption and the counter all follow the theme
-   without any of them knowing a theme exists. /admin and /join are left
+   without any of them knowing a theme exists. /drive and /join are left
    alone -- they are your screen, not the audience's. */
 :root {
   --theme-bg: #fff;

@@ -2,7 +2,7 @@
 
     uv run tools/kg.py build         # scan the repo into tools/kg.sqlite
     uv run tools/kg.py stats         # what is in there
-    uv run tools/kg.py trace /admin/reject      # a route, end to end
+    uv run tools/kg.py trace /drive/reject      # a route, end to end
     uv run tools/kg.py node compute_results     # one thing, both directions
     uv run tools/kg.py impact db.set_active_question   # what breaks if I change it
     uv run tools/kg.py check         # seams that have come apart
@@ -613,7 +613,7 @@ def cmd_check(conn, _args):
     """Seams that have come apart. Every finding names a file to look at."""
     checks = [
         ("markup drawn by only one of the two renderers",
-         "A template and app.js both draw the admin and present pages. A class "
+         "A template and app.js both draw the drive and present pages. A class "
          "only one of them knows about means the poll either adds or wipes it.",
          """
          SELECT n.name,

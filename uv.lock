@@ -153,6 +153,7 @@ source = { editable = "." }
 dependencies = [
     { name = "fastapi" },
     { name = "jinja2" },
+    { name = "pydantic" },
     { name = "python-multipart" },
     { name = "qrcode", extra = ["pil"] },
     { name = "typer" },
@@ -170,6 +171,7 @@ dev = [
 requires-dist = [
     { name = "fastapi", specifier = ">=0.110" },
     { name = "jinja2", specifier = ">=3.1" },
+    { name = "pydantic", specifier = ">=2.7" },
     { name = "python-multipart", specifier = ">=0.0.9" },
     { name = "qrcode", extras = ["pil"], specifier = ">=7.4" },
     { name = "typer", specifier = ">=0.12" },
