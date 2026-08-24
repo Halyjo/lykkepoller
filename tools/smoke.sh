@@ -120,7 +120,7 @@ options = results[mc]["options"]
 right = next(o for o in options if o["is_correct"])
 other = next(o for o in options if o["id"] != right["id"])
 for name, value in (
-    ("FIRSTQ", next(iter(results))),
+    ("FIRSTQ", next(iter(results))), ("LASTQ", list(results)[-1]),
     ("MCQ", mc), ("MC_OPT", right["id"]), ("MC_LABEL", right["label"]),
     ("MC_OTHER", other["id"]), ("FTQ", ft),
 ):
@@ -161,6 +161,11 @@ curl -s -b "$PHONE" -X POST "$BASE/answer/$SID" \
      -d "question_id=$MCQ&answer=$MC_OTHER" -o /dev/null
 check "one answer each, changes ignored" "1" \
   "$(curl -s "$BASE/api/present/state" | json 'd["active_results"]["total"]')"
+
+DRIVE=$(curl -s -b "$JAR" "$BASE/drive")
+contains "the reveal toggles are on the question" 'class="toggle-btn replies' "$DRIVE"
+check "and only on the one that is open" "1" \
+  "$(printf '%s' "$DRIVE" | grep -c 'class="toggle-btn replies')"
 
 curl -s -b "$JAR" -X POST "$BASE/drive/reveal_correct" -d "on=1" -o /dev/null
 contains "showing the answer marks it correct" 'bar correct' "$(curl -s "$BASE/present")"
@@ -221,6 +226,12 @@ check "the CSV needs the drive cookie" "401" \
 
 curl -s -b "$JAR" -X POST "$BASE/drive/end" -o /dev/null
 check "ending the session" "ended" "$(curl -s "$BASE/api/present/state" | json 'd["phase"]')"
+
+# The thank-you screen is not a dead end -- back goes to the last question.
+curl -s -b "$JAR" -X POST "$BASE/drive/prev" -o /dev/null
+check "back from the end reopens the last question" "$LASTQ" \
+  "$(curl -s -b "$JAR" "$BASE/api/drive/state" | json 'd["active_question_id"]')"
+curl -s -b "$JAR" -X POST "$BASE/drive/end" -o /dev/null
 
 # --- reopening ----------------------------------------------------------------
 

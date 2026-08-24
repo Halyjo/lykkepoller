@@ -35,14 +35,6 @@
   <form method="post" action="/drive/next"><button type="submit" class="big-btn primary">Next →</button></form>
   <form method="post" action="/drive/clear"><button type="submit" class="big-btn">Clear (Esc)</button></form>
   <form method="post" action="/drive/end" onsubmit="return confirm('End session?');"><button type="submit" class="big-btn danger">End session (E)</button></form>
-  <form method="post" action="/drive/reveal">
-    <input type="hidden" name="on" value="{{ '0' if state.reveal_free_text else '1' }}">
-    <button type="submit" class="big-btn">{{ 'Hide' if state.reveal_free_text else 'Reveal' }} answers on /present (R)</button>
-  </form>
-  <form method="post" action="/drive/reveal_correct">
-    <input type="hidden" name="on" value="{{ '0' if state.reveal_correct else '1' }}">
-    <button type="submit" class="big-btn">{{ 'Hide' if state.reveal_correct else 'Show' }} correct (C)</button>
-  </form>
   <form method="post" action="/drive/approve_all">
     <button type="submit" class="big-btn">Approve all so far (A)</button>
   </form>
@@ -58,20 +50,33 @@
         <div class="q-head">
           <strong>{{ loop.index }}. {{ q.prompt }}</strong>
           <span class="muted">({{ q.type }})</span>
-          {% if is_active %}
-            <span class="reveal-badge replies {{ 'on' if state.reveal_free_text else 'off' }}">
-              {{ 'Showing on /present' if state.reveal_free_text else 'Hidden on /present' }}
-            </span>
-            {% if res.type == "multiple_choice" and res.any_correct %}
-              <span class="reveal-badge correct {{ 'on' if state.reveal_correct else 'off' }}">
-                {{ 'Correct shown' if state.reveal_correct else 'Correct hidden' }}
-              </span>
-            {% endif %}
-          {% endif %}
           <form method="post" action="/drive/activate" class="inline">
             <input type="hidden" name="qid" value="{{ q.id }}">
             <button type="submit">{% if is_active %}Open{% else %}Activate{% endif %}</button>
           </form>
+        </div>
+        {# The reveal toggles sit on the question they act on. Only the active
+           question gets them: both toggles are reset when the next question
+           opens, so on any other question they would describe nothing. The
+           colour is the state, as the badges they replaced were. #}
+        <div class="q-controls">
+          {% if is_active %}
+            {% set noun = 'answers' if res.type == 'free_text' else 'distribution' %}
+            <form method="post" action="/drive/reveal">
+              <input type="hidden" name="on" value="{{ '0' if state.reveal_free_text else '1' }}">
+              <button type="submit" class="toggle-btn replies {{ 'on' if state.reveal_free_text else 'off' }}">
+                {{ 'Hide' if state.reveal_free_text else 'Reveal' }} {{ noun }} (R)
+              </button>
+            </form>
+            {% if res.type == "multiple_choice" and res.any_correct %}
+              <form method="post" action="/drive/reveal_correct">
+                <input type="hidden" name="on" value="{{ '0' if state.reveal_correct else '1' }}">
+                <button type="submit" class="toggle-btn correct {{ 'on' if state.reveal_correct else 'off' }}">
+                  {{ 'Hide' if state.reveal_correct else 'Show' }} correct (C)
+                </button>
+              </form>
+            {% endif %}
+          {% endif %}
         </div>
         <div class="q-results" data-qid="{{ q.id }}">
           {% if res.type == "multiple_choice" %}

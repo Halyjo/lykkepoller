@@ -175,7 +175,7 @@ TestClient and never starts a server, so it cannot see those. Every bug that
 reached a browser this far has been invisible to pytest and visible here.
 
 ```bash
-tools/smoke.sh          # 23 checks, ~6s, exits 1 on failure, cleans up after itself
+tools/smoke.sh          # 26 checks, ~6s, exits 1 on failure, cleans up after itself
 tools/smoke.sh 9001 quizzes/my_quiz.py
 tools/smoke.sh 9001 quizzes/my_quiz.lykkepoll   # drives `run --file` instead
 ```

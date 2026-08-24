@@ -118,12 +118,15 @@ Flags on all three: `--no-tunnel` (local only), `--port`, `--host`, `--domain`.
 | key            | what happens                         |
 |----------------|--------------------------------------|
 | `→` or `Space` | open the next question               |
-| `←`            | go back                              |
+| `←`            | go back (from the thank-you screen, back to the last question) |
 | `Esc`          | close the current question           |
 | `R`            | show or hide results on the projector|
 | `C`            | show which answer was correct        |
 | `A`            | approve every free-text answer you haven't crossed out |
 | `E`            | end the session (`/drive` only)      |
+
+`R` and `C` also have buttons, on the question they act on: only the question
+that is open has a pair, and the colour tells you what the projector is showing.
 
 **Multiple choice and rating** stay hidden until you press `R`. Until then the
 room sees the question and a count going up, so you can ask, let them answer,

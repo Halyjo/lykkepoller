@@ -177,6 +177,27 @@ def test_prev_on_first_is_noop(app_client):
     assert "Pick a fruit" in r.text
 
 
+def test_prev_from_the_end_reopens_the_last_question(app_client):
+    """The thank-you screen is not a dead end: going back from it puts the
+    last question up again so it can be talked through."""
+    drive(app_client)
+    app_client.post("/drive/activate", data={"qid": "qr"})
+    app_client.post("/drive/next")  # past the last one -- ends the session
+    app_client.post("/drive/prev")
+    r = app_client.get(f"/join/{SID}")
+    assert "How was it?" in r.text
+    assert db.get_state(app_client.app.state.conn, SID)["ended"] is False
+
+
+def test_prev_while_idle_is_still_a_noop(app_client):
+    """Idle is before the first question, not after the last -- nothing to
+    go back to."""
+    drive(app_client)
+    app_client.post("/drive/prev")
+    r = app_client.get(f"/join/{SID}")
+    assert "Waiting for presenter" in r.text
+
+
 def test_clear_returns_to_idle(app_client):
     drive(app_client)
     app_client.post("/drive/activate", data={"qid": "q1"})
@@ -338,6 +359,34 @@ def test_present_mc_results_hidden_until_revealed(app_client):
     assert "Apple" in r.text
     assert "unrevealed" not in r.text
     assert "1 (100%)" in r.text
+
+
+def test_reveal_toggles_sit_on_the_active_question(app_client):
+    """R and C are per-question, so their buttons are too. Only the active
+    question gets a pair -- on any other one they would describe state that
+    the next activate resets anyway."""
+    drive(app_client)
+    app_client.post("/drive/activate", data={"qid": "q1"})
+    r = app_client.get("/drive")
+    assert r.text.count('class="toggle-btn replies') == 1
+    assert "Reveal distribution (R)" in r.text
+    assert "Show correct (C)" in r.text
+
+
+def test_show_correct_button_only_where_there_is_a_correct_answer(app_client):
+    drive(app_client)
+    app_client.post("/drive/activate", data={"qid": "q3"})  # MC, no correct option
+    r = app_client.get("/drive")
+    assert "Reveal distribution (R)" in r.text
+    assert "Show correct (C)" not in r.text
+
+
+def test_free_text_reveal_button_says_answers(app_client):
+    """"Distribution" is the wrong word for a list of typed answers."""
+    drive(app_client)
+    app_client.post("/drive/activate", data={"qid": "q2"})
+    r = app_client.get("/drive")
+    assert "Hide answers (R)" in r.text  # free text opens revealed
 
 
 def test_present_show_correct_alone_reveals_bars(app_client):

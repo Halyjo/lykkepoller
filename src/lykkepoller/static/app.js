@@ -195,43 +195,9 @@ async function pollDrive() {
     const btn = item.querySelector('form[action="/drive/activate"] button');
     if (btn) btn.textContent = isActive ? "Open" : "Activate";
 
-    // Reveal-state badges (only on the active item):
-    //   .replies — whether free-text/MC results are visible on /present (R)
-    //   .correct — whether the correct MC option is highlighted on /present (C);
-    //              only relevant when the question is MC with a correct option.
-    const head = item.querySelector(".q-head");
-    const typeSpan = head ? head.querySelector(".muted") : null;
-    const ensureBadge = (cls, after) => {
-      let b = item.querySelector(`.reveal-badge.${cls}`);
-      if (!b && head) {
-        b = document.createElement("span");
-        if (after && after.parentNode === head) after.after(b);
-        else head.appendChild(b);
-      }
-      return b;
-    };
-    const removeBadge = (cls) => {
-      const b = item.querySelector(`.reveal-badge.${cls}`);
-      if (b) b.remove();
-    };
-
-    if (isActive) {
-      const replies = ensureBadge("replies", typeSpan);
-      const rOn = !!data.reveal_free_text;
-      replies.className = "reveal-badge replies " + (rOn ? "on" : "off");
-      replies.textContent = rOn ? "Showing on /present" : "Hidden on /present";
-      if (hasCorrect) {
-        const correct = ensureBadge("correct", replies);
-        const cOn = !!data.reveal_correct;
-        correct.className = "reveal-badge correct " + (cOn ? "on" : "off");
-        correct.textContent = cOn ? "Correct shown" : "Correct hidden";
-      } else {
-        removeBadge("correct");
-      }
-    } else {
-      removeBadge("replies");
-      removeBadge("correct");
-    }
+    // The R and C toggles live on the active question and nowhere else.
+    const controls = item.querySelector(".q-controls");
+    if (controls) controls.innerHTML = isActive ? renderQControls(data, r) : "";
   });
 
   // The join URL and where it came from both change when cloudflared comes
@@ -243,24 +209,6 @@ async function pollDrive() {
   }
   const src = document.querySelector(".join-block .muted");
   if (src && data.join_url_source) src.textContent = "source: " + data.join_url_source;
-
-  // reveal free-text toggle button
-  const revealFTForm = document.querySelector('form[action="/drive/reveal"]');
-  if (revealFTForm) {
-    const inp = revealFTForm.querySelector('input[name="on"]');
-    if (inp) inp.value = data.reveal_free_text ? "0" : "1";
-    const btn = revealFTForm.querySelector("button");
-    if (btn) btn.textContent = (data.reveal_free_text ? "Hide" : "Reveal") + " answers on /present (R)";
-  }
-
-  // reveal correct toggle button
-  const revealCorrForm = document.querySelector('form[action="/drive/reveal_correct"]');
-  if (revealCorrForm) {
-    const inp = revealCorrForm.querySelector('input[name="on"]');
-    if (inp) inp.value = data.reveal_correct ? "0" : "1";
-    const btn = revealCorrForm.querySelector("button");
-    if (btn) btn.textContent = (data.reveal_correct ? "Hide" : "Show") + " correct (C)";
-  }
 
   for (const [qid, r] of Object.entries(data.results)) {
     const c = document.querySelector(`.q-results[data-qid="${cssEscape(qid)}"]`);
@@ -275,6 +223,28 @@ async function pollDrive() {
       c.innerHTML = renderFreeTextList(r, qid);
     }
   }
+}
+
+function renderQControls(data, r) {
+  // Must stay in step with the .q-controls block in drive.html -- both render
+  // the same two toggles, one on load and one on every poll. The hidden `on`
+  // value is the flip, so a stale one would send the press the wrong way.
+  const noun = r && r.type === "free_text" ? "answers" : "distribution";
+  const rOn = !!data.reveal_free_text;
+  let html =
+    `<form method="post" action="/drive/reveal">` +
+    `<input type="hidden" name="on" value="${rOn ? "0" : "1"}">` +
+    `<button type="submit" class="toggle-btn replies ${rOn ? "on" : "off"}">` +
+    `${rOn ? "Hide" : "Reveal"} ${noun} (R)</button></form>`;
+  if (r && r.type === "multiple_choice" && r.any_correct) {
+    const cOn = !!data.reveal_correct;
+    html +=
+      `<form method="post" action="/drive/reveal_correct">` +
+      `<input type="hidden" name="on" value="${cOn ? "0" : "1"}">` +
+      `<button type="submit" class="toggle-btn correct ${cOn ? "on" : "off"}">` +
+      `${cOn ? "Hide" : "Show"} correct (C)</button></form>`;
+  }
+  return html;
 }
 
 function renderMCBars(r, showCorrect) {

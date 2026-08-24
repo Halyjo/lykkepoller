@@ -525,7 +525,12 @@ def create_app(*, db_path: Path) -> FastAPI:
         require_drive(request)
         sess = current_session()
         state = current_state()
-        target = prev_index(question_index(sess, state))
+        if state["ended"] and sess["questions"]:
+            # Back from the thank-you screen reopens the last question, so the
+            # room can review it. set_active_question clears `ended`.
+            target = len(sess["questions"]) - 1
+        else:
+            target = prev_index(question_index(sess, state))
         if target is not None:
             activate(sess, sess["questions"][target]["id"])
         return RedirectResponse("/drive", status_code=303)
