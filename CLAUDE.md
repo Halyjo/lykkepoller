@@ -128,14 +128,17 @@ restyles the whole projector page without any component knowing themes exist.
 git config core.hooksPath tools/githooks   # once per clone: enables the pre-push check
 ```
 
-`tools/smoke.sh` drives a real session end to end — uvicorn, static assets and
+`tools/smoke.sh` finds a multiple-choice and a free-text question in whatever
+quiz it is given, rather than assuming which id is which — hardcoding `q1` and
+`q2` is what silently broke it when the example quiz gained a question at the
+top. It drives a real session end to end — uvicorn, static assets and
 their cache headers, cookies across redirects, the QR redraw, the CSV. Run it
 after anything touching a route, a template or `app.js`; `pytest` uses
 TestClient and never starts a server, so it cannot see those. Every bug that
 reached a browser this far has been invisible to pytest and visible here.
 
 ```bash
-tools/smoke.sh          # 22 checks, ~6s, exits 1 on failure, cleans up after itself
+tools/smoke.sh          # 23 checks, ~6s, exits 1 on failure, cleans up after itself
 tools/smoke.sh 9001 quizzes/my_quiz.py
 tools/smoke.sh 9001 quizzes/my_quiz.lykkepoll   # drives `run --file` instead
 ```

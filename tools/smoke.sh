@@ -29,6 +29,7 @@ JAR=$(mktemp)      # the presenter's cookies
 PHONE=$(mktemp)    # one member of the audience
 LOG=$(mktemp)
 CSV=$(mktemp)
+STATE=$(mktemp)    # one poll of /api/admin/state, to pick questions out of
 PASS=0
 FAIL=0
 SERVER=""
@@ -37,7 +38,7 @@ DB=""
 cleanup() {
   [ -n "$SERVER" ] && kill "$SERVER" 2>/dev/null
   [ -n "$DB" ] && rm -f "$DB" "${DB%.sqlite}".sqlite-shm "${DB%.sqlite}".sqlite-wal "${DB%.sqlite}".qr.png
-  rm -f "$JAR" "$PHONE" "$LOG" "$CSV"
+  rm -f "$JAR" "$PHONE" "$LOG" "$CSV" "$STATE"
 }
 trap cleanup EXIT
 
@@ -94,6 +95,46 @@ check "token redirects and sets a cookie" "303" "$CODE"
 check "admin is refused without one" "401" \
   "$(curl -s -o /dev/null -w '%{http_code}' "$BASE/admin")"
 
+# --- which questions to drive -------------------------------------------------
+#
+# Found, not assumed. This used to hardcode q1 and q2, and went quietly wrong
+# the day a question was inserted at the top of the example quiz: q2 became
+# multiple choice, the free-text half of the run drove a question that could
+# not answer it, and eight checks failed for a reason none of them named.
+#
+# /api/admin/state keys its results by question id and says what type each one
+# is, so the script can go and find one of each kind it needs.
+
+curl -s -b "$JAR" "$BASE/api/admin/state" >"$STATE"
+PICKED=$(python3 - "$STATE" <<'PICK'
+import json, shlex, sys
+
+results = json.load(open(sys.argv[1]))["results"]  # insertion order == deck order
+mc = next((qid for qid, r in results.items()
+           if r["type"] == "multiple_choice" and r["any_correct"]), None)
+ft = next((qid for qid, r in results.items() if r["type"] == "free_text"), None)
+if mc is None or ft is None:
+    sys.exit(1)
+
+options = results[mc]["options"]
+right = next(o for o in options if o["is_correct"])
+other = next(o for o in options if o["id"] != right["id"])
+for name, value in (
+    ("FIRSTQ", next(iter(results))),
+    ("MCQ", mc), ("MC_OPT", right["id"]), ("MC_LABEL", right["label"]),
+    ("MC_OTHER", other["id"]), ("FTQ", ft),
+):
+    print(f"{name}={shlex.quote(value)}")
+PICK
+)
+if [ -z "$PICKED" ]; then
+  echo "  FAIL  $QUIZ cannot drive this script. It needs a multiple-choice"
+  echo "        question with a correct answer, and a free-text question."
+  exit 1
+fi
+eval "$PICKED"
+echo "  driving $MCQ (multiple choice) and $FTQ (free text)"
+
 # --- static assets ------------------------------------------------------------
 
 echo "static"
@@ -106,12 +147,18 @@ contains "and must be revalidated" "no-cache" "$(curl -sI "$BASE$JS_URL" | tr -d
 
 echo "multiple choice"
 curl -s -b "$JAR" -X POST "$BASE/admin/next" -o /dev/null
+check "next opens the first question" "$FIRSTQ" \
+  "$(curl -s -b "$JAR" "$BASE/api/admin/state" | json 'd["active_question_id"]')"
+
+curl -s -b "$JAR" -X POST "$BASE/admin/activate" -d "qid=$MCQ" -o /dev/null
 check "opens hidden, so the room cannot follow the leader" "False" \
   "$(curl -s -b "$JAR" "$BASE/api/admin/state" | json 'd["reveal_free_text"]')"
 
 curl -s -c "$PHONE" -b "$PHONE" -o /dev/null "$BASE/join/$SID"
-curl -s -b "$PHONE" -X POST "$BASE/answer/$SID" -d "question_id=q1&answer=B" -o /dev/null
-curl -s -b "$PHONE" -X POST "$BASE/answer/$SID" -d "question_id=q1&answer=A" -o /dev/null
+curl -s -b "$PHONE" -X POST "$BASE/answer/$SID" \
+     -d "question_id=$MCQ&answer=$MC_OPT" -o /dev/null
+curl -s -b "$PHONE" -X POST "$BASE/answer/$SID" \
+     -d "question_id=$MCQ&answer=$MC_OTHER" -o /dev/null
 check "one answer each, changes ignored" "1" \
   "$(curl -s "$BASE/api/present/state" | json 'd["active_results"]["total"]')"
 
@@ -121,23 +168,24 @@ contains "showing the answer marks it correct" 'bar correct' "$(curl -s "$BASE/p
 # --- free text ----------------------------------------------------------------
 
 echo "free text"
-curl -s -b "$JAR" -X POST "$BASE/admin/activate" -d "qid=q2" -o /dev/null
+curl -s -b "$JAR" -X POST "$BASE/admin/activate" -d "qid=$FTQ" -o /dev/null
 check "opens revealed, because it opens empty" "True" \
   "$(curl -s -b "$JAR" "$BASE/api/admin/state" | json 'd["reveal_free_text"]')"
 
 for text in "keep this" "spam spam" "keep this too"; do
   P=$(mktemp)
   curl -s -c "$P" -b "$P" -o /dev/null "$BASE/join/$SID"
-  curl -s -b "$P" -X POST "$BASE/answer/$SID" --data-urlencode "question_id=q2" \
+  curl -s -b "$P" -X POST "$BASE/answer/$SID" --data-urlencode "question_id=$FTQ" \
        --data-urlencode "answer=$text" -o /dev/null
   rm -f "$P"
 done
 check "three answers in" "3" \
-  "$(curl -s -b "$JAR" "$BASE/api/admin/state" | json 'len(d["results"]["q2"]["answers"])')"
+  "$(curl -s -b "$JAR" "$BASE/api/admin/state" | json 'len(d["results"]["'"$FTQ"'"]["answers"])')"
 
 BAD=$(curl -s -b "$JAR" "$BASE/api/admin/state" \
-      | json 'next(a["id"] for a in d["results"]["q2"]["answers"] if "spam" in a["answer"])')
-curl -s -b "$JAR" -X POST "$BASE/admin/reject" -d "qid=q2&rid=$BAD&rejected=1" -o /dev/null
+      | json 'next(a["id"] for a in d["results"]["'"$FTQ"'"]["answers"] if "spam" in a["answer"])')
+curl -s -b "$JAR" -X POST "$BASE/admin/reject" \
+     -d "qid=$FTQ&rid=$BAD&rejected=1" -o /dev/null
 curl -s -b "$JAR" -X POST "$BASE/admin/approve_all" -o /dev/null
 PRESENT=$(curl -s "$BASE/present")
 contains "the good ones reach the projector" "keep this too" "$PRESENT"
@@ -167,7 +215,7 @@ fi
 echo "afterwards"
 curl -s -b "$JAR" "$BASE/admin/export.csv" -o "$CSV"
 check "one header and four answers" "5" "$(wc -l < "$CSV" | tr -d ' ')"
-contains "multiple choice carries its label" "To give feedback to the model" "$(cat "$CSV")"
+contains "multiple choice carries its label" "$MC_LABEL" "$(cat "$CSV")"
 check "the CSV needs the admin cookie" "401" \
   "$(curl -s -o /dev/null -w '%{http_code}' "$BASE/admin/export.csv")"
 
