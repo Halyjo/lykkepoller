@@ -122,6 +122,30 @@ which `body.present` maps onto `--fg/--bg/--muted/--accent`. A theme therefore
 restyles the whole projector page without any component knowing themes exist.
 `/admin` and `/join` are deliberately left alone.
 
+## Where this is going
+
+One quiz format, several ways to fill it in. Python is the only comfortable
+authoring interface today; the next one is a page in the app for making,
+changing and deleting quizzes — working name `/quizzes`, a plain noun so it
+covers all three, and not `/manage` or `/admin`, since `/admin` already means
+the presenter's controls during a session.
+
+What that page needs already holds, and should keep holding:
+
+- `QuizSpec` is the only way into a new session, so a second author cannot
+  invent a shape the runtime does not read.
+- Files are checked on the way in, so a browser-made quiz is refused for the
+  same reasons a hand-written one is.
+- `run --file` does not care who wrote the file, and the CSV does not either.
+
+So the page is a `QuizSpec` editor that writes `.lykkepoll` files. It is not a
+reason to add a second storage path, a quizzes table, or a session that reads
+its questions from anywhere but `sessions.questions_json`.
+
+The Python API stays. It is the fastest way to write a quiz and the only one
+with a real editor behind it — a browser form is an addition, not a
+replacement.
+
 ## Before you start
 
 ```bash
