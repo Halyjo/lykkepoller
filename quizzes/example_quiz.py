@@ -7,6 +7,16 @@ quiz = Quiz(
     theme="notebook",  # plain, teal, editorial, dark, notebook
     questions=[
         MultipleChoice(
+            prompt="Where does learning happen?",
+            options=[
+                "On the screen",
+                "In the learners head",
+                "On a blackboard",
+                "In a dialogue",
+            ],
+            correct="In the learners head",
+        ),
+        MultipleChoice(
             "Why do we really need the loss function?",
             options=[
                 "To evaluate the model",
@@ -15,8 +25,12 @@ quiz = Quiz(
             ],
             correct="To give feedback to the model",
         ),
-        FreeText("Where do you live?"),
-        MultipleChoice("Pick a colour", options=["Red", "Blue", "Green"]),
+        FreeText("What is your favorite food?"),
+        MultipleChoice(
+            "Pick a colour", 
+            options=["Red", "Blue", "Green"],
+            correct=["Red", "Blue", "Green"],
+        ),
         Rating(
             "How well did you follow this section?",
             low="Lost",
