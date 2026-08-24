@@ -78,10 +78,10 @@ body.participant .submitted {
   background: #e8f5e9; border-radius: 6px; font-size: 0.95rem;
 }
 
-/* --- admin ----------------------------------------------------------- */
-body.admin main { max-width: 1100px; }
-.admin-header { display: flex; justify-content: space-between; gap: 2rem; flex-wrap: wrap; }
-.admin-header h1 { margin-bottom: 0.25rem; }
+/* --- drive ----------------------------------------------------------- */
+body.drive main { max-width: 1100px; }
+.drive-header { display: flex; justify-content: space-between; gap: 2rem; flex-wrap: wrap; }
+.drive-header h1 { margin-bottom: 0.25rem; }
 .join-block { font-size: 0.95rem; }
 .override-form input { width: 16rem; padding: 0.4rem; }
 
@@ -246,7 +246,7 @@ body.present .bar-count { font-size: 1.2rem; }
 /* A theme file (static/themes/*.css) redefines nothing but the variables
    below. /present then maps them onto the polling colours, so the prompt,
    the result bars, the QR caption and the counter all follow the theme
-   without any of them knowing a theme exists. /admin and /join are left
+   without any of them knowing a theme exists. /drive and /join are left
    alone -- they are your screen, not the audience's. */
 :root {
   --theme-bg: #fff;

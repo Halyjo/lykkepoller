@@ -69,7 +69,7 @@ def serve(*, db_path: Path, host="127.0.0.1", port=8000, tunnel=True,
           domain=None, tunnel_name=None):
     """Serve an existing session database until the process stops."""
     app = app_module.create_app(db_path=db_path)
-    _print_urls(f"http://{host}:{port}", app.state.session_id, app.state.admin_token, db_path)
+    _print_urls(f"http://{host}:{port}", app.state.session_id, app.state.drive_token, db_path)
     if tunnel:
         _start_cloudflared(port, app, domain=domain, tunnel_name=tunnel_name)
 
@@ -102,7 +102,7 @@ def _start_cloudflared(port: int, app, domain=None, tunnel_name=None):
         return None
 
     atexit.register(_terminate_quietly, proc)
-    token = app.state.admin_token
+    token = app.state.drive_token
 
     if domain:
         app.state.tunnel_url = f"https://{domain}"
@@ -124,7 +124,7 @@ def _start_cloudflared(port: int, app, domain=None, tunnel_name=None):
         typer.echo("Tunnel URL not detected. cloudflared said:")
         for raw in tail:
             typer.echo(f"  {raw.rstrip()}")
-        typer.echo("Set the URL by hand in /admin, or restart with --no-tunnel.")
+        typer.echo("Set the URL by hand in /drive, or restart with --no-tunnel.")
 
     threading.Thread(target=watch, daemon=True).start()
     return proc
@@ -149,7 +149,7 @@ def _print_urls(base: str, session_id: str, token: str, db_path: Path) -> None:
         "",
         f"Session:          {session_id}",
         f"Local join:       {base}/join",
-        f"Local admin:      {base}/admin?token={token}",
+        f"Drive (you):      {base}/drive?token={token}",
         f"Present:          {base}/present",
         f"Present (drive):  {base}/present?token={token}",
         f"Database:         {db_path}",

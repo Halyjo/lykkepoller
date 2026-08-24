@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Live polling for talks, run from the presenter's laptop. A quiz is a Python
 file or a saved `.lykkepoll` file; a session is one SQLite file. Three pages:
-`/admin` (presenter), `/present` (projector), `/join` (phones). No accounts,
+`/drive` (presenter), `/present` (projector), `/join` (phones). No accounts,
 no build step, no database server.
 
 `README.md` is the user-facing reference. Update it when you change behaviour
@@ -108,10 +108,24 @@ column to `SCHEMA` *and* an `_ensure_column(...)` line in `init_schema`.
 **The public URL is worked out per request** by `compute_base_url`: manual
 override on the session row → tunnel URL from the cloudflared watcher →
 `X-Forwarded-*` headers → the request itself. It returns a `source` label shown
-on `/admin`, so a wrong join URL can be diagnosed instead of guessed at.
+on `/drive`, so a wrong join URL can be diagnosed instead of guessed at.
 
-**The admin token** arrives in the URL, moves to a cookie on first visit, then
-redirects to a clean `/admin`. It keeps the audience from clicking the
+**Page names say what the viewer is doing.** `/join`, `/present`, `/drive` —
+three verbs, one per person in the room. `/drive` was `/admin` until it was
+renamed: "admin" named a permission level, and this app has no accounts and no
+roles, so it was borrowed from a world lykkepoller does not live in. The app
+was already calling it driving in its own output before the rename. `/quizzes`
+is deliberately the odd one out — a noun, for the page you use when no session
+is running.
+
+That rename took the `sessions.admin_token` column with it, so sessions written
+before it cannot be reopened. That was a deliberate trade while the app has one
+user; `cli._open` catches the missing column and says so instead of showing a
+traceback. Don't take it as licence to break session files again — the
+`_ensure_column` rule above is still the default.
+
+**The drive token** arrives in the URL, moves to a cookie on first visit, then
+redirects to a clean `/drive`. It keeps the audience from clicking the
 presenter's buttons; it is not real security, and the code says so.
 
 **Keyboard shortcuts submit forms** rather than calling an API, so the
@@ -120,15 +134,14 @@ server-side handler stays the single path through which state changes.
 **Themes** are CSS variable files in `static/themes/`. They set `--theme-*`,
 which `body.present` maps onto `--fg/--bg/--muted/--accent`. A theme therefore
 restyles the whole projector page without any component knowing themes exist.
-`/admin` and `/join` are deliberately left alone.
+`/drive` and `/join` are deliberately left alone.
 
 ## Where this is going
 
 One quiz format, several ways to fill it in. Python is the only comfortable
 authoring interface today; the next one is a page in the app for making,
 changing and deleting quizzes — working name `/quizzes`, a plain noun so it
-covers all three, and not `/manage` or `/admin`, since `/admin` already means
-the presenter's controls during a session.
+covers all three.
 
 What that page needs already holds, and should keep holding:
 
@@ -177,7 +190,7 @@ that would otherwise take several greps and a lot of context.
 ```bash
 uv run tools/kg.py build                  # force a rebuild (derived; gitignored)
 uv run tools/kg.py map                    # compact overview of the whole repo
-uv run tools/kg.py trace /admin/reject    # a route: handler, tables, callers
+uv run tools/kg.py trace /drive/reject    # a route: handler, tables, callers
 uv run tools/kg.py node compute_results   # one thing, both directions
 uv run tools/kg.py impact db.end_session  # what breaks if I change it
 uv run tools/kg.py check                  # seams that have come apart
@@ -206,7 +219,7 @@ src/lykkepoller/
   db.py        all the SQL, schema, migration hooks
   cli.py       run --file / reopen / inspect / export / validate / schema
   exports.py   CSV
-  templates/   base, participant, admin, present
+  templates/   base, participant, drive, present
   static/      style.css, app.js, themes/
 ```
 

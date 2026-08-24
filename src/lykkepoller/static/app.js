@@ -3,7 +3,7 @@
 // What this file does, by page:
 //
 //   body.participant
-//     Answering still does a real form POST, unlike /admin: the reload is
+//     Answering still does a real form POST, unlike /drive: the reload is
 //     wanted there, because it is what re-renders the form as locked.
 //     Polls /api/participant/state every ~1.5s. The poll doubles as a
 //     heartbeat: the server updates participants.last_seen_at so it can
@@ -12,8 +12,8 @@
 //     the page so the server template renders the new state. Reloading
 //     keeps client-side templating out of the picture.
 //
-//   body.admin
-//     Polls /api/admin/state every ~1.5s. Updates the connected/answered
+//   body.drive
+//     Polls /api/drive/state every ~1.5s. Updates the connected/answered
 //     counts and re-renders each question's result block in place
 //     (MC bars or free-text moderation list). Also wires keyboard
 //     shortcuts that submit the matching <form>, so server-side handlers
@@ -84,15 +84,15 @@ function startPolling(poll) {
 document.addEventListener("DOMContentLoaded", () => {
   if (document.body.classList.contains("participant")) {
     startPolling(pollParticipant);
-  } else if (document.body.classList.contains("admin")) {
-    const refresh = startPolling(pollAdmin);
-    bindAdminShortcuts(refresh, {onPresent: false});
+  } else if (document.body.classList.contains("drive")) {
+    const refresh = startPolling(pollDrive);
+    bindDriveShortcuts(refresh, {onPresent: false});
     bindFormPosts(refresh);
   } else if (document.body.classList.contains("present")) {
     const root = document.getElementById("present-app");
     const refresh = startPolling(pollPresent);
-    if (root && root.dataset.admin === "1") {
-      bindAdminShortcuts(refresh, {onPresent: true});
+    if (root && root.dataset.drive === "1") {
+      bindDriveShortcuts(refresh, {onPresent: true});
       bindFormPosts(refresh);
     }
   }
@@ -158,10 +158,10 @@ async function pollParticipant() {
   }
 }
 
-// --- admin ------------------------------------------------------------------
+// --- drive ------------------------------------------------------------------
 
-async function pollAdmin() {
-  const data = await fetchJson("/api/admin/state");
+async function pollDrive() {
+  const data = await fetchJson("/api/drive/state");
   if (!data) return;
 
   setText("connected-count", data.connected_count);
@@ -192,7 +192,7 @@ async function pollAdmin() {
     item.classList.toggle("revealed", isActive && !!data.reveal_free_text);
     item.classList.toggle("correct-revealed", isActive && !!data.reveal_correct && hasCorrect);
 
-    const btn = item.querySelector('form[action="/admin/activate"] button');
+    const btn = item.querySelector('form[action="/drive/activate"] button');
     if (btn) btn.textContent = isActive ? "Open" : "Activate";
 
     // Reveal-state badges (only on the active item):
@@ -245,7 +245,7 @@ async function pollAdmin() {
   if (src && data.join_url_source) src.textContent = "source: " + data.join_url_source;
 
   // reveal free-text toggle button
-  const revealFTForm = document.querySelector('form[action="/admin/reveal"]');
+  const revealFTForm = document.querySelector('form[action="/drive/reveal"]');
   if (revealFTForm) {
     const inp = revealFTForm.querySelector('input[name="on"]');
     if (inp) inp.value = data.reveal_free_text ? "0" : "1";
@@ -254,7 +254,7 @@ async function pollAdmin() {
   }
 
   // reveal correct toggle button
-  const revealCorrForm = document.querySelector('form[action="/admin/reveal_correct"]');
+  const revealCorrForm = document.querySelector('form[action="/drive/reveal_correct"]');
   if (revealCorrForm) {
     const inp = revealCorrForm.querySelector('input[name="on"]');
     if (inp) inp.value = data.reveal_correct ? "0" : "1";
@@ -315,7 +315,7 @@ function renderRatingBars(r) {
 }
 
 function renderFreeTextList(r, qid) {
-  // Must stay in step with the same block in admin.html -- both render the
+  // Must stay in step with the same block in drive.html -- both render the
   // moderation list, one on load and one on every poll.
   let html = `<p class="muted">${r.total} response${r.total === 1 ? "" : "s"}</p>`;
   if (r.answers.length) {
@@ -328,7 +328,7 @@ function renderFreeTextList(r, qid) {
       html +=
         `<li class="${cls}">` +
         `<span class="answer-text">${escapeHtml(a.answer)}</span>` +
-        `<form method="post" action="/admin/reject" class="inline">` +
+        `<form method="post" action="/drive/reject" class="inline">` +
         hidden +
         `<input type="hidden" name="rejected" value="${a.rejected ? "0" : "1"}">` +
         `<button type="submit" class="reject-btn" title="${
@@ -337,7 +337,7 @@ function renderFreeTextList(r, qid) {
         `</form>`;
       if (!a.rejected) {
         html +=
-          `<form method="post" action="/admin/approve" class="inline">` +
+          `<form method="post" action="/drive/approve" class="inline">` +
           hidden +
           `<input type="hidden" name="approved" value="${a.approved ? "0" : "1"}">` +
           `<button type="submit">${a.approved ? "Unapprove" : "Approve"}</button>` +
@@ -382,13 +382,13 @@ async function pollPresent() {
   // The tunnel takes a few seconds to come up, so this page was almost
   // certainly rendered showing a 127.0.0.1 QR that no phone can reach. Swap
   // in the real one the moment the address changes, rather than making the
-  // presenter reload. Also covers typing an override URL on /admin mid-talk.
+  // presenter reload. Also covers typing an override URL on /drive mid-talk.
   updateJoinUrl(root, data.join_url);
 
   // Keep the hidden reveal-toggle forms in sync so a second R/C press sends
   // the correct flip value rather than a stale one.
-  syncRevealToggle('form[action="/admin/reveal"]', data.reveal_free_text);
-  syncRevealToggle('form[action="/admin/reveal_correct"]', data.reveal_correct);
+  syncRevealToggle('form[action="/drive/reveal"]', data.reveal_free_text);
+  syncRevealToggle('form[action="/drive/reveal_correct"]', data.reveal_correct);
 
   const results = document.getElementById("present-results");
   if (results && data.phase === "active" && data.active_results) {
@@ -472,7 +472,7 @@ function renderFreeTextPresent(r, reveal) {
 }
 
 function bindFormPosts(refresh) {
-  // Every control on /admin is a real <form>, which is what keeps the server
+  // Every control on /drive is a real <form>, which is what keeps the server
   // in charge of state. The cost was that clicking one navigated: POST, 303,
   // full reload, back to the top of the page -- painful when you are
   // approving the twelfth answer down and the list jumps away from you.
@@ -491,7 +491,7 @@ function bindFormPosts(refresh) {
     e.preventDefault();
     fetch(form.action, {method: "POST", body: new FormData(form), credentials: "same-origin"})
       .then((res) => {
-        // A refused POST -- an expired admin cookie, say -- should be seen,
+        // A refused POST -- an expired drive cookie, say -- should be seen,
         // not swallowed. Let the browser submit it properly and show why.
         if (!res.ok) {
           form.submit();
@@ -503,10 +503,10 @@ function bindFormPosts(refresh) {
   });
 }
 
-function bindAdminShortcuts(refresh, opts) {
+function bindDriveShortcuts(refresh, opts) {
   // refresh: function called after each successful POST to re-fetch state.
-  //   pollAdmin on /admin, pollPresent on /present.
-  // opts.onPresent: skip /admin-only behaviors (E to end, scroll-into-view).
+  //   pollDrive on /drive, pollPresent on /present.
+  // opts.onPresent: skip /drive-only behaviors (E to end, scroll-into-view).
   //   Dropping E on /present avoids accidentally ending the session from the
   //   audience-facing screen.
   const onPresent = !!(opts && opts.onPresent);
@@ -531,29 +531,29 @@ function bindAdminShortcuts(refresh, opts) {
     switch (e.key) {
       case "ArrowRight":
       case " ":
-        submit('form[action="/admin/next"]');
+        submit('form[action="/drive/next"]');
         break;
       case "ArrowLeft":
-        submit('form[action="/admin/prev"]');
+        submit('form[action="/drive/prev"]');
         break;
       case "Escape":
-        submit('form[action="/admin/clear"]');
+        submit('form[action="/drive/clear"]');
         break;
       case "r":
       case "R":
-        submit('form[action="/admin/reveal"]');
+        submit('form[action="/drive/reveal"]');
         break;
       case "e":
       case "E":
-        if (!onPresent) submit('form[action="/admin/end"]');
+        if (!onPresent) submit('form[action="/drive/end"]');
         break;
       case "c":
       case "C":
-        submit('form[action="/admin/reveal_correct"]');
+        submit('form[action="/drive/reveal_correct"]');
         break;
       case "a":
       case "A":
-        submit('form[action="/admin/approve_all"]');
+        submit('form[action="/drive/approve_all"]');
         break;
     }
   });

@@ -29,7 +29,7 @@ JAR=$(mktemp)      # the presenter's cookies
 PHONE=$(mktemp)    # one member of the audience
 LOG=$(mktemp)
 CSV=$(mktemp)
-STATE=$(mktemp)    # one poll of /api/admin/state, to pick questions out of
+STATE=$(mktemp)    # one poll of /api/drive/state, to pick questions out of
 PASS=0
 FAIL=0
 SERVER=""
@@ -83,17 +83,17 @@ if ! curl -sf -o /dev/null "$BASE/qr.png"; then
 fi
 
 SID=$(grep '^Session:' "$LOG" | awk '{print $2}')
-TOKEN=$(grep -o 'admin?token=[a-z0-9-]*' "$LOG" | head -1 | cut -d= -f2)
+TOKEN=$(grep -o 'drive?token=[a-z0-9-]*' "$LOG" | head -1 | cut -d= -f2)
 DB=$(grep '^Database:' "$LOG" | awk '{print $2}')
 echo "  session $SID"
 
 # --- the presenter gets in ----------------------------------------------------
 
 echo "presenter"
-CODE=$(curl -s -o /dev/null -w '%{http_code}' -c "$JAR" -b "$JAR" "$BASE/admin?token=$TOKEN")
+CODE=$(curl -s -o /dev/null -w '%{http_code}' -c "$JAR" -b "$JAR" "$BASE/drive?token=$TOKEN")
 check "token redirects and sets a cookie" "303" "$CODE"
-check "admin is refused without one" "401" \
-  "$(curl -s -o /dev/null -w '%{http_code}' "$BASE/admin")"
+check "drive is refused without one" "401" \
+  "$(curl -s -o /dev/null -w '%{http_code}' "$BASE/drive")"
 
 # --- which questions to drive -------------------------------------------------
 #
@@ -102,10 +102,10 @@ check "admin is refused without one" "401" \
 # multiple choice, the free-text half of the run drove a question that could
 # not answer it, and eight checks failed for a reason none of them named.
 #
-# /api/admin/state keys its results by question id and says what type each one
+# /api/drive/state keys its results by question id and says what type each one
 # is, so the script can go and find one of each kind it needs.
 
-curl -s -b "$JAR" "$BASE/api/admin/state" >"$STATE"
+curl -s -b "$JAR" "$BASE/api/drive/state" >"$STATE"
 PICKED=$(python3 - "$STATE" <<'PICK'
 import json, shlex, sys
 
@@ -138,21 +138,21 @@ echo "  driving $MCQ (multiple choice) and $FTQ (free text)"
 # --- static assets ------------------------------------------------------------
 
 echo "static"
-JS_URL=$(curl -s -b "$JAR" "$BASE/admin" | grep -o '/static/app\.js?v=[a-f0-9]*' | head -1)
+JS_URL=$(curl -s -b "$JAR" "$BASE/drive" | grep -o '/static/app\.js?v=[a-f0-9]*' | head -1)
 contains "the page asks for a versioned app.js" "?v=" "$JS_URL"
-contains "app.js is served and current" "admin/reject" "$(curl -s "$BASE$JS_URL")"
+contains "app.js is served and current" "drive/reject" "$(curl -s "$BASE$JS_URL")"
 contains "and must be revalidated" "no-cache" "$(curl -sI "$BASE$JS_URL" | tr -d '\r')"
 
 # --- a multiple-choice question -----------------------------------------------
 
 echo "multiple choice"
-curl -s -b "$JAR" -X POST "$BASE/admin/next" -o /dev/null
+curl -s -b "$JAR" -X POST "$BASE/drive/next" -o /dev/null
 check "next opens the first question" "$FIRSTQ" \
-  "$(curl -s -b "$JAR" "$BASE/api/admin/state" | json 'd["active_question_id"]')"
+  "$(curl -s -b "$JAR" "$BASE/api/drive/state" | json 'd["active_question_id"]')"
 
-curl -s -b "$JAR" -X POST "$BASE/admin/activate" -d "qid=$MCQ" -o /dev/null
+curl -s -b "$JAR" -X POST "$BASE/drive/activate" -d "qid=$MCQ" -o /dev/null
 check "opens hidden, so the room cannot follow the leader" "False" \
-  "$(curl -s -b "$JAR" "$BASE/api/admin/state" | json 'd["reveal_free_text"]')"
+  "$(curl -s -b "$JAR" "$BASE/api/drive/state" | json 'd["reveal_free_text"]')"
 
 curl -s -c "$PHONE" -b "$PHONE" -o /dev/null "$BASE/join/$SID"
 curl -s -b "$PHONE" -X POST "$BASE/answer/$SID" \
@@ -162,15 +162,15 @@ curl -s -b "$PHONE" -X POST "$BASE/answer/$SID" \
 check "one answer each, changes ignored" "1" \
   "$(curl -s "$BASE/api/present/state" | json 'd["active_results"]["total"]')"
 
-curl -s -b "$JAR" -X POST "$BASE/admin/reveal_correct" -d "on=1" -o /dev/null
+curl -s -b "$JAR" -X POST "$BASE/drive/reveal_correct" -d "on=1" -o /dev/null
 contains "showing the answer marks it correct" 'bar correct' "$(curl -s "$BASE/present")"
 
 # --- free text ----------------------------------------------------------------
 
 echo "free text"
-curl -s -b "$JAR" -X POST "$BASE/admin/activate" -d "qid=$FTQ" -o /dev/null
+curl -s -b "$JAR" -X POST "$BASE/drive/activate" -d "qid=$FTQ" -o /dev/null
 check "opens revealed, because it opens empty" "True" \
-  "$(curl -s -b "$JAR" "$BASE/api/admin/state" | json 'd["reveal_free_text"]')"
+  "$(curl -s -b "$JAR" "$BASE/api/drive/state" | json 'd["reveal_free_text"]')"
 
 for text in "keep this" "spam spam" "keep this too"; do
   P=$(mktemp)
@@ -180,13 +180,13 @@ for text in "keep this" "spam spam" "keep this too"; do
   rm -f "$P"
 done
 check "three answers in" "3" \
-  "$(curl -s -b "$JAR" "$BASE/api/admin/state" | json 'len(d["results"]["'"$FTQ"'"]["answers"])')"
+  "$(curl -s -b "$JAR" "$BASE/api/drive/state" | json 'len(d["results"]["'"$FTQ"'"]["answers"])')"
 
-BAD=$(curl -s -b "$JAR" "$BASE/api/admin/state" \
+BAD=$(curl -s -b "$JAR" "$BASE/api/drive/state" \
       | json 'next(a["id"] for a in d["results"]["'"$FTQ"'"]["answers"] if "spam" in a["answer"])')
-curl -s -b "$JAR" -X POST "$BASE/admin/reject" \
+curl -s -b "$JAR" -X POST "$BASE/drive/reject" \
      -d "qid=$FTQ&rid=$BAD&rejected=1" -o /dev/null
-curl -s -b "$JAR" -X POST "$BASE/admin/approve_all" -o /dev/null
+curl -s -b "$JAR" -X POST "$BASE/drive/approve_all" -o /dev/null
 PRESENT=$(curl -s "$BASE/present")
 contains "the good ones reach the projector" "keep this too" "$PRESENT"
 case "$PRESENT" in
@@ -200,7 +200,7 @@ contains "the card count drives their size" "--answer-count: 2" "$PRESENT"
 
 echo "join address"
 QR_BEFORE=$(curl -s "$BASE/qr.png" | md5)
-curl -s -b "$JAR" -X POST "$BASE/admin/override" -d "url=https://smoke.example" -o /dev/null
+curl -s -b "$JAR" -X POST "$BASE/drive/override" -d "url=https://smoke.example" -o /dev/null
 check "the poll carries the new address" "https://smoke.example/join/$SID" \
   "$(curl -s "$BASE/api/present/state" | json 'd["join_url"]')"
 QR_AFTER=$(curl -s "$BASE/qr.png" | md5)
@@ -213,13 +213,13 @@ fi
 # --- getting the answers out --------------------------------------------------
 
 echo "afterwards"
-curl -s -b "$JAR" "$BASE/admin/export.csv" -o "$CSV"
+curl -s -b "$JAR" "$BASE/drive/export.csv" -o "$CSV"
 check "one header and four answers" "5" "$(wc -l < "$CSV" | tr -d ' ')"
 contains "multiple choice carries its label" "$MC_LABEL" "$(cat "$CSV")"
-check "the CSV needs the admin cookie" "401" \
-  "$(curl -s -o /dev/null -w '%{http_code}' "$BASE/admin/export.csv")"
+check "the CSV needs the drive cookie" "401" \
+  "$(curl -s -o /dev/null -w '%{http_code}' "$BASE/drive/export.csv")"
 
-curl -s -b "$JAR" -X POST "$BASE/admin/end" -o /dev/null
+curl -s -b "$JAR" -X POST "$BASE/drive/end" -o /dev/null
 check "ending the session" "ended" "$(curl -s "$BASE/api/present/state" | json 'd["phase"]')"
 
 # --- reopening ----------------------------------------------------------------

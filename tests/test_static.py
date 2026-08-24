@@ -25,12 +25,12 @@ def test_app_js_parses():
 def test_app_js_polls_every_page_type():
     """Each page type must actually start its poll loop."""
     src = APP_JS.read_text()
-    for page in ("pollParticipant", "pollAdmin", "pollPresent"):
+    for page in ("pollParticipant", "pollDrive", "pollPresent"):
         assert f"startPolling({page})" in src, page
 
 
-def test_admin_forms_post_without_navigating():
-    """Clicking a control used to reload /admin and throw the scroll position
+def test_drive_forms_post_without_navigating():
+    """Clicking a control used to reload /drive and throw the scroll position
     away, which hurts most when approving an answer far down the list. Mouse
     clicks now take the same fetch path the keyboard shortcuts always did."""
     src = APP_JS.read_text()
@@ -45,10 +45,10 @@ def test_admin_forms_post_without_navigating():
 def test_participant_keeps_its_real_submit():
     """The reload is wanted on a phone: it is what redraws the form as locked."""
     src = APP_JS.read_text()
-    admin_at = src.index('classList.contains("admin")')
-    admin_branch = src[admin_at:]
-    participant = src[src.index('classList.contains("participant")'):admin_at]
-    assert "bindFormPosts" in admin_branch
+    drive_at = src.index('classList.contains("drive")')
+    drive_branch = src[drive_at:]
+    participant = src[src.index('classList.contains("participant")'):drive_at]
+    assert "bindFormPosts" in drive_branch
     assert "bindFormPosts" not in participant
 
 

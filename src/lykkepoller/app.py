@@ -76,7 +76,7 @@ def create_app(*, db_path: Path) -> FastAPI:
     app.state.conn = conn
     app.state.db_path = db_path
     app.state.session_id = session["id"]
-    app.state.admin_token = session["admin_token"]
+    app.state.drive_token = session["drive_token"]
     # Set by the cloudflared watcher in cli._start_cloudflared once the public
     # URL is parsed. Stays None when --no-tunnel or when cloudflared fails.
     app.state.tunnel_url = None
@@ -107,18 +107,18 @@ def create_app(*, db_path: Path) -> FastAPI:
 
     def phase_of(state: dict) -> str:
         """IDLE / ACTIVE / ENDED, as seen by participants, /present and the
-        /admin badge."""
+        /drive badge."""
         if state["ended"]:
             return "ended"
         if state["active_question_id"]:
             return "active"
         return "idle"
 
-    def require_admin(request: Request) -> None:
-        if request.cookies.get("admin_token") != app.state.admin_token:
+    def require_drive(request: Request) -> None:
+        if request.cookies.get("drive_token") != app.state.drive_token:
             raise HTTPException(
                 status_code=401,
-                detail="Open the admin URL printed in your terminal.",
+                detail="Open the drive URL printed in your terminal.",
             )
 
     def ensure_participant_id(request: Request) -> tuple[str, bool]:
@@ -133,11 +133,11 @@ def create_app(*, db_path: Path) -> FastAPI:
         # casual reuse on shared machines doesn't carry over.
         resp.set_cookie("participant_id", pid, httponly=True, samesite="lax", max_age=60 * 60 * 8)
 
-    def set_admin_cookie(resp, request: Request, token: str) -> None:
+    def set_drive_cookie(resp, request: Request, token: str) -> None:
         # `secure` only when the request itself is https (which it will be behind
         # cloudflared because forwarded headers are honored, see uvicorn config).
         resp.set_cookie(
-            "admin_token",
+            "drive_token",
             token,
             httponly=True,
             samesite="lax",
@@ -188,7 +188,7 @@ def create_app(*, db_path: Path) -> FastAPI:
         """Return (base_url, source) for the public-facing URL.
 
         Priority:
-          1. manual override stored on the session row (typed in /admin form)
+          1. manual override stored on the session row (typed in /drive form)
           2. tunnel URL set by the cloudflared watcher (in-memory, this process)
           3. X-Forwarded-Host / X-Forwarded-Proto (set by cloudflared on its
              own traffic)
@@ -196,7 +196,7 @@ def create_app(*, db_path: Path) -> FastAPI:
              started with proxy_headers=True; the host comes from the Host header)
 
         `source` is one of "override" / "tunnel" / "headers" / "request" /
-        "localhost". It is shown on /admin so the presenter can see where the
+        "localhost". It is shown on /drive so the presenter can see where the
         join URL came from without guessing.
         """
         sess = db_module.get_session(conn)
@@ -236,7 +236,7 @@ def create_app(*, db_path: Path) -> FastAPI:
         return None, db_module.participant_text_count(conn, session_id, active_q["id"], pid)
 
     def compute_results(question: dict) -> dict:
-        """Build the result summary dict used by both /admin and /present."""
+        """Build the result summary dict used by both /drive and /present."""
         sid = app.state.session_id
         qid = question["id"]
         if question["type"] == "rating":
@@ -397,15 +397,15 @@ def create_app(*, db_path: Path) -> FastAPI:
 
     @app.get("/present", response_class=HTMLResponse)
     async def present(request: Request, token: str | None = None):
-        # Same first-visit cookie flow as /admin: ?token=... validates and
+        # Same first-visit cookie flow as /drive: ?token=... validates and
         # 303s to a clean /present so the token doesn't sit in the URL bar
         # during screen share. Presenters can drive the session from /present
-        # using the admin keyboard shortcuts once the cookie is set.
+        # using the drive keyboard shortcuts once the cookie is set.
         if token is not None:
-            if token != app.state.admin_token:
-                raise HTTPException(status_code=401, detail="Bad admin token.")
+            if token != app.state.drive_token:
+                raise HTTPException(status_code=401, detail="Bad drive token.")
             resp = RedirectResponse("/present", status_code=303)
-            set_admin_cookie(resp, request, token)
+            set_drive_cookie(resp, request, token)
             return resp
 
         sess = current_session()
@@ -419,7 +419,7 @@ def create_app(*, db_path: Path) -> FastAPI:
         base, _ = compute_base_url(request)
         join_url = base + f"/join/{sess['id']}"
         qr_url = base + "/qr.png"
-        is_admin = request.cookies.get("admin_token") == app.state.admin_token
+        is_driver = request.cookies.get("drive_token") == app.state.drive_token
         return TEMPLATES.TemplateResponse(
             request,
             "present.html",
@@ -434,7 +434,7 @@ def create_app(*, db_path: Path) -> FastAPI:
                 "reveal_correct": state["reveal_correct"],
                 "join_url": join_url,
                 "qr_url": qr_url,
-                "is_admin": is_admin,
+                "is_driver": is_driver,
                 "connected_count": db_module.count_connected(conn, sess["id"]),
                 "answered_count": (
                     db_module.count_answered(conn, sess["id"], state["active_question_id"])
@@ -445,20 +445,20 @@ def create_app(*, db_path: Path) -> FastAPI:
             },
         )
 
-    # --- admin GET (cookie redirect) -----------------------------------------
+    # --- drive GET (cookie redirect) -----------------------------------------
 
-    @app.get("/admin", response_class=HTMLResponse)
-    async def admin(request: Request, token: str | None = None):
-        # First-visit flow: ?token=... validates, sets cookie, redirects to /admin
+    @app.get("/drive", response_class=HTMLResponse)
+    async def drive(request: Request, token: str | None = None):
+        # First-visit flow: ?token=... validates, sets cookie, redirects to /drive
         # so the token disappears from the address bar (avoids leaking on screen
         # share). Subsequent requests are authed by cookie only.
         if token is not None:
-            if token != app.state.admin_token:
-                raise HTTPException(status_code=401, detail="Bad admin token.")
-            resp = RedirectResponse("/admin", status_code=303)
-            set_admin_cookie(resp, request, token)
+            if token != app.state.drive_token:
+                raise HTTPException(status_code=401, detail="Bad drive token.")
+            resp = RedirectResponse("/drive", status_code=303)
+            set_drive_cookie(resp, request, token)
             return resp
-        require_admin(request)
+        require_drive(request)
 
         sess = current_session()
         state = current_state()
@@ -468,7 +468,7 @@ def create_app(*, db_path: Path) -> FastAPI:
         active_id = state["active_question_id"]
         return TEMPLATES.TemplateResponse(
             request,
-            "admin.html",
+            "drive.html",
             {
                 "title": sess["title"],
                 "questions": sess["questions"],
@@ -485,31 +485,31 @@ def create_app(*, db_path: Path) -> FastAPI:
             },
         )
 
-    # --- admin actions --------------------------------------------------------
+    # --- drive actions --------------------------------------------------------
 
-    @app.post("/admin/activate")
-    async def admin_activate(request: Request, qid: str = Form(...)):
-        require_admin(request)
+    @app.post("/drive/activate")
+    async def drive_activate(request: Request, qid: str = Form(...)):
+        require_drive(request)
         sess = current_session()
         if quiz_mod.find_question(sess["questions"], qid) is not None:
             activate(sess, qid)
-        return RedirectResponse("/admin", status_code=303)
+        return RedirectResponse("/drive", status_code=303)
 
-    @app.post("/admin/clear")
-    async def admin_clear(request: Request):
-        require_admin(request)
+    @app.post("/drive/clear")
+    async def drive_clear(request: Request):
+        require_drive(request)
         db_module.clear_active_question(conn, app.state.session_id)
-        return RedirectResponse("/admin", status_code=303)
+        return RedirectResponse("/drive", status_code=303)
 
-    @app.post("/admin/end")
-    async def admin_end(request: Request):
-        require_admin(request)
+    @app.post("/drive/end")
+    async def drive_end(request: Request):
+        require_drive(request)
         db_module.end_session(conn, app.state.session_id)
-        return RedirectResponse("/admin", status_code=303)
+        return RedirectResponse("/drive", status_code=303)
 
-    @app.post("/admin/next")
-    async def admin_next(request: Request):
-        require_admin(request)
+    @app.post("/drive/next")
+    async def drive_next(request: Request):
+        require_drive(request)
         sess = current_session()
         state = current_state()
         target = next_index(sess["questions"], question_index(sess, state))
@@ -518,67 +518,67 @@ def create_app(*, db_path: Path) -> FastAPI:
             db_module.end_session(conn, sess["id"])
         else:
             activate(sess, sess["questions"][target]["id"])
-        return RedirectResponse("/admin", status_code=303)
+        return RedirectResponse("/drive", status_code=303)
 
-    @app.post("/admin/prev")
-    async def admin_prev(request: Request):
-        require_admin(request)
+    @app.post("/drive/prev")
+    async def drive_prev(request: Request):
+        require_drive(request)
         sess = current_session()
         state = current_state()
         target = prev_index(question_index(sess, state))
         if target is not None:
             activate(sess, sess["questions"][target]["id"])
-        return RedirectResponse("/admin", status_code=303)
+        return RedirectResponse("/drive", status_code=303)
 
-    @app.post("/admin/reveal")
-    async def admin_reveal(request: Request, on: str = Form(...)):
-        require_admin(request)
+    @app.post("/drive/reveal")
+    async def drive_reveal(request: Request, on: str = Form(...)):
+        require_drive(request)
         db_module.set_reveal_free_text(conn, app.state.session_id, on == "1")
-        return RedirectResponse("/admin", status_code=303)
+        return RedirectResponse("/drive", status_code=303)
 
-    @app.post("/admin/reveal_correct")
-    async def admin_reveal_correct(request: Request, on: str = Form(...)):
+    @app.post("/drive/reveal_correct")
+    async def drive_reveal_correct(request: Request, on: str = Form(...)):
         # Toggled per-question via the C shortcut. set_active_question resets
         # this back to 0, so each new question starts hidden.
-        require_admin(request)
+        require_drive(request)
         db_module.set_reveal_correct(conn, app.state.session_id, on == "1")
-        return RedirectResponse("/admin", status_code=303)
+        return RedirectResponse("/drive", status_code=303)
 
-    @app.post("/admin/approve")
-    async def admin_approve(
+    @app.post("/drive/approve")
+    async def drive_approve(
         request: Request,
         qid: str = Form(...),
         rid: int = Form(...),
         approved: str = Form(...),
     ):
-        require_admin(request)
+        require_drive(request)
         if approved == "1":
             db_module.approve_free_text(conn, app.state.session_id, qid, rid)
         else:
             db_module.unapprove_free_text(conn, app.state.session_id, qid, rid)
-        return RedirectResponse("/admin", status_code=303)
+        return RedirectResponse("/drive", status_code=303)
 
-    @app.post("/admin/reject")
-    async def admin_reject(
+    @app.post("/drive/reject")
+    async def drive_reject(
         request: Request,
         qid: str = Form(...),
         rid: int = Form(...),
         rejected: str = Form(...),
     ):
-        require_admin(request)
+        require_drive(request)
         if rejected == "1":
             db_module.reject_free_text(conn, app.state.session_id, qid, rid)
         else:
             db_module.unreject_free_text(conn, app.state.session_id, qid, rid)
-        return RedirectResponse("/admin", status_code=303)
+        return RedirectResponse("/drive", status_code=303)
 
-    @app.post("/admin/approve_all")
-    async def admin_approve_all(request: Request):
+    @app.post("/drive/approve_all")
+    async def drive_approve_all(request: Request):
         # Bulk-approve every response for the active free-text question. The
         # presenter typically uses this to skim new answers, glance for
         # anything off, and accept the rest in one click. No-op when there is
         # no active question or the active question is not free-text.
-        require_admin(request)
+        require_drive(request)
         state = current_state()
         qid = state["active_question_id"]
         if qid:
@@ -586,11 +586,11 @@ def create_app(*, db_path: Path) -> FastAPI:
             q = quiz_mod.find_question(sess["questions"], qid)
             if q is not None and q["type"] == "free_text":
                 db_module.approve_all_existing_free_text(conn, sess["id"], qid)
-        return RedirectResponse("/admin", status_code=303)
+        return RedirectResponse("/drive", status_code=303)
 
-    @app.get("/admin/export.csv")
-    async def admin_export(request: Request):
-        require_admin(request)
+    @app.get("/drive/export.csv")
+    async def drive_export(request: Request):
+        require_drive(request)
         sess = current_session()
         csv_text = exports_mod.csv_for_session(conn, sess)
         return Response(
@@ -601,11 +601,11 @@ def create_app(*, db_path: Path) -> FastAPI:
             },
         )
 
-    @app.post("/admin/override")
-    async def admin_override(request: Request, url: str = Form("")):
-        require_admin(request)
+    @app.post("/drive/override")
+    async def drive_override(request: Request, url: str = Form("")):
+        require_drive(request)
         db_module.set_public_url_override(conn, app.state.session_id, url.strip())
-        return RedirectResponse("/admin", status_code=303)
+        return RedirectResponse("/drive", status_code=303)
 
     # --- QR --------------------------------------------------------------------
 
@@ -634,7 +634,7 @@ def create_app(*, db_path: Path) -> FastAPI:
             raise HTTPException(status_code=404)
         # The participant page polls this endpoint every ~1.5s. It doubles as
         # the heartbeat -- every poll updates participants.last_seen_at, which
-        # drives the "connected" count on /admin and /present.
+        # drives the "connected" count on /drive and /present.
         pid, is_new = ensure_participant_id(request)
         sess = current_session()
         state = current_state()
@@ -656,9 +656,9 @@ def create_app(*, db_path: Path) -> FastAPI:
             set_participant_cookie(resp, pid)
         return resp
 
-    @app.get("/api/admin/state")
-    async def api_admin_state(request: Request):
-        require_admin(request)
+    @app.get("/api/drive/state")
+    async def api_drive_state(request: Request):
+        require_drive(request)
         sess = current_session()
         state = current_state()
         active_id = state["active_question_id"]

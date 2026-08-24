@@ -20,7 +20,7 @@ Anything that can produce that file gets run and exported the same way.
 - One quiz per file. Write it in Python; your editor checks it as you type.
 - `.lykkepoll` is the saved form: versioned JSON, checked when it loads.
 - One SQLite file per session, in `data/`.
-- Three pages: `/admin` for you, `/present` for the projector, `/join` for phones.
+- Three pages: `/drive` for you, `/present` for the projector, `/join` for phones.
 - No accounts, no scoring, no build step, no database server.
 
 ## Install
@@ -105,7 +105,7 @@ all — see [Reopening a session](#reopening-a-session).
 Whichever you use, it prints some URLs and then a `Tunnel:` line a moment later.
 Open two windows:
 
-- **`/admin`** on your laptop — the *Local admin* URL. You drive from here.
+- **`/drive`** on your laptop — the *Drive (you)* URL. You drive from here.
 - **`/present`** on the projector — QR code, questions, results.
 
 Open **Present (drive)** instead of plain `/present` and the shortcuts work
@@ -123,7 +123,7 @@ Flags on all three: `--no-tunnel` (local only), `--port`, `--host`, `--domain`.
 | `R`            | show or hide results on the projector|
 | `C`            | show which answer was correct        |
 | `A`            | approve every free-text answer you haven't crossed out |
-| `E`            | end the session (`/admin` only)      |
+| `E`            | end the session (`/drive` only)      |
 
 **Multiple choice and rating** stay hidden until you press `R`. Until then the
 room sees the question and a count going up, so you can ask, let them answer,
@@ -133,7 +133,7 @@ rest; it resets when the next question opens, so `→` never leaks the next answ
 **Free text** is the other way round. Its panel is already showing when the
 question opens, because it opens empty — approving is the gate, not `R`.
 
-Read the answers on `/admin`, click `✕` beside anything you don't want, then
+Read the answers on `/drive`, click `✕` beside anything you don't want, then
 press `A` to approve everything still standing. `A` skips what you crossed out,
 so you can press it again as new answers come in. `↺` puts one back.
 
@@ -146,7 +146,7 @@ form, so the server stays in charge.
 
 ## Afterwards
 
-Click **Download CSV** on `/admin`, or:
+Click **Download CSV** on `/drive`, or:
 
 ```bash
 uv run lykkepoller export data/<file>.sqlite -o responses.csv
@@ -167,7 +167,7 @@ Each session is its own SQLite file, named by date and quiz:
 uv run lykkepoller run --db data/2026-08-22-my_quiz-blue-otter-4281.sqlite
 ```
 
-Everything comes back: id, title, admin token (so a bookmarked admin URL still
+Everything comes back: id, title, drive token (so a bookmarked drive URL still
 works), questions and answers.
 
 The quiz is not read again. What was asked is what was asked — that is why
@@ -244,9 +244,12 @@ does not care who wrote the file. A quiz made in a browser will run and export
 exactly like one written in Python.
 
 Working name for the page is `/quizzes` — a plain noun, so it covers making,
-changing and deleting without promising only one of them, and it does not
-collide with `/admin`, which already means "the presenter's controls during a
-session".
+changing and deleting without promising only one of them.
+
+It also sits outside the other three. `/join`, `/present` and `/drive` all name
+what the person looking at the page is doing, and all three happen during a
+talk. `/quizzes` names a thing rather than an act, which is right: it is the
+one page you use when no session is running.
 
 ## Letting phones in
 
@@ -261,17 +264,17 @@ routed to it, you get a stable address:
 uv run quizzes/my_quiz.py --domain lykkepoller.com
 ```
 
-If the address looks wrong, `/admin` shows where it came from (`tunnel`,
+If the address looks wrong, `/drive` shows where it came from (`tunnel`,
 `headers`, `override`, `localhost`) and has a field to type one in by hand.
 
 **The QR points at 127.0.0.1.** The tunnel is not up yet. `/present` swaps in
 the real QR by itself within a second or two of the `Tunnel:` line appearing —
 you do not need to reload it.
 
-## The admin token
+## The drive token
 
-The admin URL carries a token. The first visit checks it, moves it into a
-cookie, and redirects to a clean `/admin` so it is gone from the address bar
+The drive URL carries a token. The first visit checks it, moves it into a
+cookie, and redirects to a clean `/drive` so it is gone from the address bar
 before you share your screen.
 
 This stops a curious audience member clicking your buttons. It is not real
@@ -318,7 +321,7 @@ src/lykkepoller/
   cli.py       run a saved quiz / reopen / inspect / export / validate
   exports.py   CSV
   qr.py        QR codes
-  templates/   base, participant, admin, present
+  templates/   base, participant, drive, present
   static/      style.css, app.js, themes/
 quizzes/       your quizzes, .py or .lykkepoll
 data/          one .sqlite and one .qr.png per session

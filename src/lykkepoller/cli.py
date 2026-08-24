@@ -29,7 +29,16 @@ cli = typer.Typer(
 def _open(db_path: Path) -> tuple[sqlite3.Connection, dict]:
     conn = db_module.connect(db_path)
     db_module.init_schema(conn)
-    session = db_module.get_session(conn)
+    try:
+        session = db_module.get_session(conn)
+    except sqlite3.OperationalError as e:
+        # The presenter's page was renamed /admin -> /drive, and the column
+        # holding its token with it. Sessions written before that cannot be
+        # read, and saying so beats a traceback about a missing column.
+        typer.secho(f"{db_path}: {e}", fg="red", err=True)
+        typer.secho("This session predates the /admin -> /drive rename and "
+                    "cannot be reopened.", fg="red", err=True)
+        raise typer.Exit(code=1) from None
     if session is None:
         typer.secho(f"{db_path} has no session in it.", fg="red", err=True)
         raise typer.Exit(code=1)
