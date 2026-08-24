@@ -1,0 +1,11 @@
+/* NOTEBOOK — warm cream, serif body + sans headings, orange accent. */
+:root {
+  --theme-bg:       #fbf6ec;
+  --theme-fg:       #1f261e;
+  --theme-muted:    #6a655a;
+  --theme-accent:   #b85a14;
+  --theme-panel:    #f1ead8;
+  --theme-border:   #d6cdb6;
+  --theme-font:     "Iowan Old Style", Georgia, "Palatino Linotype", Palatino, serif;
+  --theme-font-headings: "Avenir Next", "Trebuchet MS", "Helvetica Neue", system-ui, sans-serif;
+}

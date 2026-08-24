@@ -1,0 +1,4 @@
+# Session files are generated. Keep the directory, not its contents.
+*
+!.gitignore
+!.gitkeep

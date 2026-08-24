@@ -4,7 +4,8 @@ import csv
 import io
 import sqlite3
 
-from . import db, questions
+from . import db
+from . import quiz as quiz_mod
 
 CSV_HEADER = [
     "session_id",
@@ -35,7 +36,7 @@ def csv_for_session(conn: sqlite3.Connection, session: dict) -> str:
         prompt = q["prompt"] if q else ""
         label = ""
         if q is not None and q["type"] == "multiple_choice":
-            label = questions.option_label(q, r["answer"])
+            label = quiz_mod.option_label(q, r["answer"])
         writer.writerow(
             [
                 session["id"],

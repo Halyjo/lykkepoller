@@ -1,26 +1,15 @@
 {% extends "base.html" %}
 {% block body_class %}present{% endblock %}
 {% block head_extra %}
-  {# Per-talk theme.css overrides design tokens (CSS variables). Loaded after
-     style.css so its overrides win. Skipped when the talk has no theme.css. #}
-  {% if has_theme_css %}<link rel="stylesheet" href="/talk/theme.css">{% endif %}
-  {# KaTeX auto-render scans the document for $...$ and $$...$$ delimiters
-     once the DOM is ready. Loaded on /present (not /admin or /join) since
-     it's only slide content that uses it. #}
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css" crossorigin="anonymous">
-  <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js" crossorigin="anonymous"></script>
-  <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js" crossorigin="anonymous"
-    onload="renderMathInElement(document.body, {delimiters: [
-      {left: '$$', right: '$$', display: true},
-      {left: '$',  right: '$',  display: false}
-    ], throwOnError: false});"></script>
+  {# The chosen theme only redefines colour and font variables. Loaded after
+     style.css so its values win. "plain" means no theme file at all. #}
+  {% if theme and theme != "plain" %}<link rel="stylesheet" href="/static/themes/{{ theme }}.css?v={{ asset_version }}">{% endif %}
 {% endblock %}
 {% block content %}
 <div id="present-app"
      data-phase="{{ phase }}"
      data-qid="{{ active_question.id if active_question else '' }}"
-     data-slide-index="{{ active_slide_index if active_slide_index is not none else '' }}"
-     data-slide-kind="{{ active_slide.type if active_slide else '' }}"
+     data-join-url="{{ join_url }}"
      data-admin="{{ '1' if is_admin else '0' }}">
   {% if phase != "idle" %}
     <div class="qr-corner">
@@ -31,13 +20,6 @@
   {% if phase == "ended" %}
     <h1 class="huge">Thanks!</h1>
     <p class="big">{{ title }}</p>
-  {% elif phase == "active" and active_slide and active_slide.type == "content" %}
-    {# Content slide: inject the rendered HTML from the snapshot. The slide
-       file authors trusted HTML; macros escape any user-supplied values they
-       receive. #}
-    <article class="slide-content">
-      {{ active_slide.html | safe }}
-    </article>
   {% elif phase == "active" and active_question %}
     <h1 class="prompt">{{ active_question.prompt }}</h1>
     <div class="present-meta">
@@ -70,11 +52,14 @@
       {% else %}
         <p class="big">{{ active_results.total }} response{{ '' if active_results.total == 1 else 's' }} received</p>
         {% if reveal_free_text and active_results.approved_answers %}
-          <ul class="present-free-text">
+          {# Cards, not a bulleted list: these arrived in whatever order people
+             happened to type them, and a list makes that look deliberate. #}
+          <div class="answer-cards"
+               style="--answer-count: {{ active_results.approved_answers | length }}">
             {% for ans in active_results.approved_answers %}
-              <li>{{ ans.answer }}</li>
+              <blockquote class="answer-card">{{ ans.answer }}</blockquote>
             {% endfor %}
-          </ul>
+          </div>
         {% endif %}
       {% endif %}
     </div>
@@ -87,10 +72,8 @@
     </div>
   {% endif %}
 
-  {% if slide_count and active_slide_index is not none %}
-    <div class="slide-counter">
-      {{ active_slide_index + 1 }} / {{ slide_count }}
-    </div>
+  {% if phase == "active" %}
+    <div class="question-counter">{{ question_number }} / {{ question_count }}</div>
   {% endif %}
 
   {% if is_admin %}
@@ -112,4 +95,4 @@
   {% endif %}
 </div>
 {% endblock %}
-{% block scripts %}<script src="/static/app.js" defer></script>{% endblock %}
+{% block scripts %}<script src="/static/app.js?v={{ asset_version }}" defer></script>{% endblock %}

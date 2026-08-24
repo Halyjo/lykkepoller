@@ -10,9 +10,7 @@ build/
 .pytest_cache/
 .ruff_cache/
 
-data/*.sqlite
-data/*.sqlite-wal
-data/*.sqlite-shm
-data/*.qr.png
-
 .DS_Store
+
+# Derived: rebuild with `uv run tools/kg.py build`
+tools/kg.sqlite

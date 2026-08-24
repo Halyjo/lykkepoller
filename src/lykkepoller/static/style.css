@@ -105,54 +105,22 @@ body.admin main { max-width: 1100px; }
 .big-btn.primary { background: var(--accent); color: white; border-color: var(--accent); }
 .big-btn.danger { background: var(--danger); color: white; border-color: var(--danger); }
 
-.slide-list, .question-list { list-style: none; padding: 0; }
+.question-list { list-style: none; padding: 0; }
 .question-item {
   padding: 0.75rem 1rem; margin: 0.5rem 0;
   border: 1px solid var(--border); border-radius: 8px; background: white;
 }
-/* .active = "this slide is currently on /present". Yellow background.
-   .answering = "this question is still receiving answers" (set even after
-                 the presenter has advanced to the next discussion slide).
-   The two cues stack: on a question slide, both apply; on a content slide
-   immediately after a question, only that content stripe gets .active and
-   the question above keeps .answering. */
+/* .active / .answering both mean "this is the question on screen right now".
+   They are kept as two names because the reveal stripes below hang off
+   .answering, and a later version may separate them again. */
 .question-item.active { background: var(--active); border-color: #d4a800; }
 .question-item.answering { border-color: #d4a800; }
-/* Reveal stripes follow .answering so they keep showing when the presenter
-   moves onto a discussion content slide. Two independent cues:
+/* Two independent cues on the active question:
    - .revealed (R on)         → thick green stripe on the LEFT
    - .correct-revealed (C on) → thick green stripe on the RIGHT */
 .question-item.answering.revealed { box-shadow: inset 8px 0 0 0 #2a6e0a; }
 .question-item.answering.correct-revealed { box-shadow: inset -8px 0 0 0 #2e7d32; }
 .question-item.answering.revealed.correct-revealed { box-shadow: inset 8px 0 0 0 #2a6e0a, inset -8px 0 0 0 #2e7d32; }
-
-/* Content slide stripes: thin and muted so the deck structure is visible
-   at a glance without competing with question results. */
-.content-stripe {
-  display: flex; align-items: center; gap: 0.6rem;
-  padding: 0.4rem 0.8rem; margin: 0.25rem 0 0.25rem 1rem;
-  border-left: 3px solid var(--border);
-  background: #fbfbfc;
-  border-radius: 0 6px 6px 0;
-  font-size: 0.92rem;
-  color: var(--muted);
-}
-.content-stripe.active {
-  background: var(--active);
-  border-left-color: #d4a800;
-  color: var(--fg);
-}
-.content-stripe-icon { color: var(--accent); font-size: 1.05rem; line-height: 1; }
-.content-stripe-num { font-variant-numeric: tabular-nums; min-width: 2.2rem; }
-.content-stripe-source {
-  flex: 1;
-  font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
-  font-size: 0.88rem;
-  color: inherit;
-}
-.content-stripe .inline button {
-  font-size: 0.85rem; padding: 0.25rem 0.6rem;
-}
 
 .reveal-badge {
   display: inline-block; padding: 0.25rem 0.7rem; border-radius: 999px;
@@ -193,29 +161,20 @@ body.admin main { max-width: 1100px; }
   display: flex; gap: 0.5rem; align-items: center;
 }
 .free-text-list .approved { background: #f1f8e9; }
+/* Crossed out with the x: still readable (you may want to put it back) but
+   clearly out of the running, and "approve all" will skip it. */
+.free-text-list .rejected { background: #faf0f0; border-color: #e3c4c4; }
+.free-text-list .rejected .answer-text { text-decoration: line-through; opacity: 0.55; }
 .free-text-list .answer-text { flex: 1; }
+.reject-btn {
+  font-size: 0.95rem; line-height: 1;
+  padding: 0.35rem 0.6rem;
+  color: var(--muted); background: #fff;
+  border: 1px solid var(--border); border-radius: 6px;
+}
+.reject-btn:hover { color: var(--danger); border-color: var(--danger); }
 
 .export { margin-top: 2rem; }
-
-.shortcuts {
-  margin: 1rem 0 2rem;
-  padding: 0.75rem 1rem;
-  border: 1px dashed var(--border);
-  border-radius: 8px;
-  background: #fcfcfc;
-  font-size: 0.95rem;
-}
-.shortcuts h3 { margin: 0 0 0.5rem; font-size: 1rem; }
-.shortcuts ul {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  columns: 2;
-  column-gap: 2rem;
-}
-.shortcuts li { padding: 0.15rem 0; break-inside: avoid; }
-.shortcuts p { margin: 0.5rem 0 0; }
-
 kbd {
   display: inline-block;
   padding: 0.05rem 0.4rem;
@@ -230,244 +189,100 @@ kbd {
 }
 
 /* --- present --------------------------------------------------------- */
-/* (body.present background/color/font are set in the slide-deck section
-   below so they pick up --slide-bg / --slide-fg / --slide-font.) */
+/* (body.present background/color/font are set in the theme section below so
+   they pick up --theme-bg / --theme-fg / --theme-font.) */
 body.present main { max-width: 1400px; padding: 3rem; }
 body.present .prompt { font-size: 3rem; line-height: 1.2; }
 body.present .title { font-size: 3rem; }
 body.present .qr-block { display: flex; flex-direction: column; align-items: center; gap: 1rem; }
 body.present .qr { width: 380px; height: 380px; image-rendering: pixelated; }
 body.present .join-url { font-family: ui-monospace, "SFMono-Regular", Consolas, monospace; }
-/* QR pinned to the bottom-right so it doesn't crowd slide titles or the
-   active-question prompt at the top of /present. The slide-counter sits
-   in the bottom-LEFT, so the two don't fight for the same corner. */
+/* QR pinned to the bottom-right so it doesn't crowd the question prompt at
+   the top of /present. The counter sits in the bottom-LEFT, so the two
+   don't fight for the same corner. */
 body.present .qr-corner { position: fixed; bottom: 1rem; right: 1.25rem; display: flex; flex-direction: column; align-items: center; gap: 0.3rem; opacity: 0.92; z-index: 5; }
 body.present .qr-corner .qr { width: 130px; height: 130px; }
 body.present .qr-corner .join-url { font-size: 0.85rem; margin: 0; color: var(--muted); }
 body.present .present-meta { font-size: 1.2rem; color: var(--muted); margin: 1rem 0 2rem; display: flex; gap: 0.75rem; }
+/* Free-text answers as separate cards, not a bulleted list. They arrived in
+   whatever order people happened to type them, and a list makes that look
+   like a planned sequence. Boxes read as "several people said things". */
+/* Cards shrink as answers pile up, so twenty of them still fit on the screen
+   instead of running off the bottom. The markup carries one number,
+   --answer-count, and every sum below is done here -- so the server render
+   and the poll render have nothing to disagree about.
+
+   Text: 2.1rem at four answers, losing 0.07rem each, floor 0.95rem (~20).
+   Columns: 22rem wide at four, narrowing to 12rem so more fit per row.
+   Both stay capped by the viewport, so a short list never turns cartoonish. */
+body.present .answer-cards {
+  --count: var(--answer-count, 1);
+  --card-min: clamp(12rem, calc(22rem - (var(--count) - 4) * 1rem), 22rem);
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(var(--card-min), 100%), 1fr));
+  gap: clamp(0.5rem, calc(1rem - (var(--count) - 4) * 0.04rem), 1rem);
+  margin-top: 1.5rem;
+  align-content: start;
+}
+body.present .answer-card {
+  --by-count: calc(2.1rem - (var(--count) - 4) * 0.07rem);
+  margin: 0;
+  /* em, so the padding shrinks with the text rather than swallowing it. */
+  padding: 0.6em 0.75em;
+  font-size: clamp(0.95rem, min(calc(2.1vw + 0.6rem), var(--by-count)), 2rem);
+  line-height: 1.3;
+  background: var(--theme-panel);
+  border: 1px solid var(--theme-border);
+  border-left: 0.25em solid var(--theme-accent);
+  border-radius: 10px;
+  overflow-wrap: break-word;
+}
+
 body.present .bar-label { min-width: 18rem; font-size: 1.4rem; }
 body.present .bar-fill { height: 1.6rem; }
 body.present .bar-count { font-size: 1.2rem; }
 
-/* --- slide deck (content slides on /present) --------------------------- */
-/* Design tokens are exposed as CSS variables so a per-talk theme.css can
-   override them (typically just colors and fonts). The defaults below are
-   deliberately calm and book-like; talks override to match their identity.
-   See talks/demo-presentation/theme.css for a full list of tunables. */
+/* --- projector theme --------------------------------------------------- */
+/* A theme file (static/themes/*.css) redefines nothing but the variables
+   below. /present then maps them onto the polling colours, so the prompt,
+   the result bars, the QR caption and the counter all follow the theme
+   without any of them knowing a theme exists. /admin and /join are left
+   alone -- they are your screen, not the audience's. */
 :root {
-  --slide-bg: #fff;
-  --slide-fg: #1a1a1a;
-  --slide-muted: #5a5a5a;
-  --slide-accent: #2a59c9;
-  --slide-panel: #f4f4f6;
-  --slide-border: #d8d8d8;
-  --slide-good: #2e7d32;
-  --slide-warn: #b88500;
-  --slide-bad: #c92a2a;
-  --slide-font: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
-  --slide-font-headings: var(--slide-font);
+  --theme-bg: #fff;
+  --theme-fg: #1a1a1a;
+  --theme-muted: #5a5a5a;
+  --theme-accent: #2a59c9;
+  --theme-panel: #f4f4f6;
+  --theme-border: #d8d8d8;
+  --theme-font: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  --theme-font-headings: var(--theme-font);
 }
 
-/* Inside /present, redefine the polling tokens to point at the slide
-   tokens. This way bars, prompts, the QR caption, the slide counter -- all
-   the chrome around the slide canvas -- pick up the talk's palette
-   automatically without touching their CSS. /admin and /join keep the
-   default polling palette. */
 body.present {
-  --fg: var(--slide-fg);
-  --bg: var(--slide-bg);
-  --muted: var(--slide-muted);
-  --accent: var(--slide-accent);
-  background: var(--slide-bg);
-  color: var(--slide-fg);
-  font-family: var(--slide-font);
+  --fg: var(--theme-fg);
+  --bg: var(--theme-bg);
+  --muted: var(--theme-muted);
+  --accent: var(--theme-accent);
+  background: var(--theme-bg);
+  color: var(--theme-fg);
+  font-family: var(--theme-font);
 }
 
-body.present .slide-content {
-  /* The slide canvas. Generous padding, large text, max-width for line
-     length on big projectors. The QR corner overlays via fixed positioning
-     so we can let content go full-width here. */
-  max-width: 1100px;
-  margin: 0 auto;
-  font-size: clamp(1.1rem, 1.6vw, 1.5rem);
-  line-height: 1.45;
-  color: var(--slide-fg);
-}
+body.present .prompt,
+body.present .title,
+body.present .huge { font-family: var(--theme-font-headings); }
 
-body.present .slide-content h1,
-body.present .slide-content h2,
-body.present .slide-content h3 {
-  margin: 0 0 0.8rem;
-  letter-spacing: -0.02em;
-  line-height: 1.1;
-  color: var(--slide-fg);
-  font-family: var(--slide-font-headings);
-}
-body.present .slide-content h1 { font-size: clamp(2.4rem, 4.2vw, 3.6rem); }
-body.present .slide-content h2 { font-size: clamp(1.8rem, 3vw, 2.6rem); }
-body.present .slide-content h3 { font-size: clamp(1.4rem, 2.2vw, 1.9rem); }
-body.present .slide-content p,
-body.present .slide-content li { color: var(--slide-fg); }
-body.present .slide-content code {
-  background: var(--slide-panel);
-  padding: 0.05em 0.35em;
-  border-radius: 0.25em;
-  font-size: 0.92em;
-}
-
-/* Hero / title slide */
-body.present .slide-hero { padding: 3rem 0; }
-body.present .slide-hero h1 { font-size: clamp(2.8rem, 5.5vw, 4.6rem); max-width: 18ch; }
-body.present .slide-subtitle {
-  font-size: clamp(1.2rem, 2vw, 1.7rem);
-  color: var(--slide-muted);
-  max-width: 60ch;
-  margin-top: 1rem;
-}
-
-/* Bullets */
-body.present .slide-bullets ul {
-  list-style: none;
-  padding: 0;
-  margin: 0.5rem 0 0;
-}
-body.present .slide-bullets li {
-  position: relative;
-  padding: 0.45rem 0 0.45rem 1.6rem;
-  font-size: clamp(1.2rem, 2vw, 1.7rem);
-}
-body.present .slide-bullets li::before {
-  content: "";
-  position: absolute;
-  left: 0.3rem;
-  top: 1.05rem;
-  width: 0.55rem;
-  height: 0.55rem;
-  border-radius: 999px;
-  background: var(--slide-accent);
-}
-
-/* Image */
-body.present .slide-image {
-  margin: 1rem 0;
-  text-align: center;
-}
-body.present .slide-image img {
-  max-width: 100%;
-  max-height: 60vh;
-  border-radius: 12px;
-  box-shadow: 0 12px 40px rgba(0,0,0,0.12);
-}
-body.present .slide-image figcaption {
-  margin-top: 0.6rem;
-  font-size: 0.95rem;
-  color: var(--slide-muted);
-}
-
-/* Math */
-body.present .slide-math.display {
-  background: var(--slide-panel);
-  border-left: 4px solid var(--slide-accent);
-  padding: 1.4rem 1.6rem;
-  margin: 1.2rem 0;
-  border-radius: 0 10px 10px 0;
-  font-size: clamp(1.3rem, 2.4vw, 2rem);
-  overflow-x: auto;
-}
-
-/* Table */
-body.present .slide-table {
-  width: 100%;
-  border-collapse: collapse;
-  margin: 1rem 0;
-  font-size: clamp(1rem, 1.5vw, 1.3rem);
-}
-body.present .slide-table th,
-body.present .slide-table td {
-  text-align: left;
-  padding: 0.7rem 0.9rem;
-  border-bottom: 1px solid var(--slide-border);
-}
-body.present .slide-table th {
-  font-weight: 700;
-  color: var(--slide-accent);
-  background: var(--slide-panel);
-  border-bottom: 2px solid var(--slide-accent);
-}
-body.present .slide-table tr:last-child td { border-bottom: none; }
-
-/* Two-column */
-body.present .slide-two-col {
-  display: grid;
-  gap: 1.6rem;
-  align-items: start;
-  margin: 1rem 0;
-}
-
-/* Code */
-body.present .slide-code {
-  background: #1a1a22;
-  color: #f0f0f4;
-  padding: 1rem 1.2rem;
-  border-radius: 10px;
-  overflow-x: auto;
-  font-size: 0.95em;
-  line-height: 1.45;
-}
-body.present .slide-code code { background: transparent; padding: 0; color: inherit; }
-
-/* Quote */
-body.present .slide-quote {
-  margin: 1.2rem 0;
-  padding: 1rem 1.4rem;
-  border-left: 4px solid var(--slide-accent);
-  background: var(--slide-panel);
-  font-size: clamp(1.2rem, 2vw, 1.6rem);
-  font-style: italic;
-  border-radius: 0 10px 10px 0;
-}
-body.present .slide-quote cite {
-  display: block;
-  margin-top: 0.6rem;
-  font-style: normal;
-  font-size: 0.95rem;
-  color: var(--slide-muted);
-}
-
-/* Callout */
-body.present .slide-callout {
-  margin: 1rem 0;
-  padding: 0.9rem 1.1rem;
-  border-radius: 10px;
-  border: 1px solid var(--slide-border);
-  background: var(--slide-panel);
-}
-body.present .slide-callout.warn { border-color: var(--slide-warn); background: #fff7e0; }
-body.present .slide-callout.good { border-color: var(--slide-good); background: #ecf6ec; }
-
-/* Fragments: hidden by default, revealed one at a time by the deck
-   controller in app.js. Soft fade-in to avoid jolting layout. */
-body.present .fragment {
-  opacity: 0;
-  transition: opacity 220ms ease;
-  pointer-events: none;
-}
-body.present .fragment.revealed {
-  opacity: 1;
-  pointer-events: auto;
-}
-
-/* Slide counter pill in the bottom-right of /present (only when a slide is
-   active). Subtle so it does not compete with content; presenter-only
-   screens may want to show it bigger via theme.css. */
-body.present .slide-counter {
+/* Counter pill in the bottom-left ("3 / 12"). Subtle -- it is orientation,
+   not content. */
+body.present .question-counter {
   position: fixed;
   bottom: 1rem;
   left: 1.25rem;
   font-size: 0.95rem;
-  color: var(--slide-muted);
-  background: var(--slide-panel);
-  border: 1px solid var(--slide-border);
+  color: var(--theme-muted);
+  background: var(--theme-panel);
+  border: 1px solid var(--theme-border);
   padding: 0.25rem 0.7rem;
   border-radius: 999px;
   font-variant-numeric: tabular-nums;

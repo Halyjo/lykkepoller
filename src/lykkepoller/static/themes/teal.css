@@ -1,0 +1,11 @@
+/* TEAL — calm, sans-serif, deep teal accent. */
+:root {
+  --theme-bg:       #ffffff;
+  --theme-fg:       #1a1a1a;
+  --theme-muted:    #5a5a5a;
+  --theme-accent:   #0d7d6c;
+  --theme-panel:    #f0f6f4;
+  --theme-border:   #d8e0dc;
+  --theme-font:     -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  --theme-font-headings: var(--theme-font);
+}
